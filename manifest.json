@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "AI Page Inspector",
+  "version": "1.1",
+  "description": "Select page elements and get HTML for AI integration via a glassmorphism overlay.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "debugger"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Toggle AI Inspector Overlay"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ]
+}
