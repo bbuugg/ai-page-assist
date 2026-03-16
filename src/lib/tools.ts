@@ -285,7 +285,7 @@ function callContentTool(tool: string, input: Record<string, unknown> = {}): Pro
 }
 
 // Tools handled directly in the overlay (not forwarded to content script)
-const CONTENT_TOOLS = new Set(['get_element_html', 'get_element_css', 'get_full_page_html', 'highlight_element', 'execute_js', 'fill_input', 'click_element', 'modify_element', 'undo_last_modification', 'upload_file_to_input', 'query_page']);
+const CONTENT_TOOLS = new Set(['get_element_html', 'get_element_css', 'get_full_page_html', 'highlight_element', 'execute_js', 'fill_input', 'click_element', 'modify_element', 'undo_last_modification', 'upload_file_to_input', 'query_page', 'scroll_page']);
 
 export async function executeTool(name: ToolName, input: Record<string, unknown>): Promise<ToolResult> {
   try {
@@ -309,16 +309,6 @@ export async function executeTool(name: ToolName, input: Record<string, unknown>
         });
         const base64 = dataUrl.replace(/^data:image\/png;base64,/, '');
         return { content: base64, isImage: true };
-      }
-      case 'scroll_page': {
-        const x = (input.x as number) ?? 0;
-        const y = (input.y as number) ?? 0;
-        const sel = input.selector as string | undefined;
-        const code = sel
-          ? `(function(){var el=document.querySelector(${JSON.stringify(sel)});if(!el)return 'element not found';el.scrollBy(${x},${y});return 'scrolled';})()`
-          : `window.scrollBy(${x},${y});'scrolled'`;
-        await callContentTool('execute_js', { code });
-        return { content: `Scrolled ${sel ? sel : 'window'} by x=${x} y=${y}` };
       }
       case 'open_url': {
         const url = input.url as string;

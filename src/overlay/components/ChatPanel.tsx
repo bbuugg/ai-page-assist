@@ -330,6 +330,8 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
             if (isImage) {
               onAddMessage('system', `data:image/png;base64,${result}`, 'image');
               onPatchLastToolResult('[screenshot]');
+              // Image renders asynchronously — force scroll after layout
+              setTimeout(() => scrollToBottom(true), 100);
             } else {
               onPatchLastToolResult(result);
             }

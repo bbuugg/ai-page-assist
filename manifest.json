@@ -7,6 +7,7 @@
     "activeTab",
     "scripting",
     "storage",
+    "unlimitedStorage",
     "sidePanel"
   ],
   "host_permissions": [
@@ -16,7 +17,7 @@
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "Toggle AI Assistant",
+    "default_title": "Toggle AI Assist",
     "default_icon": {
       "16": "icons/16.png",
       "32": "icons/32.png",

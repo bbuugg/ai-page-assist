@@ -530,14 +530,6 @@ function sendToolError(id: string, type: string, error: string) {
   postToPanel({ type: `${type}_RESULT`, id, error });
 }
 
-function captureScreenshot(): Promise<string> {
-  return new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ action: 'screenshot' }, (response) => {
-      if (response?.error) reject(new Error(response.error));
-      else resolve(response.dataUrl);
-    });
-  });
-}
 
 // ---- Message listener from background / side panel ----
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
@@ -662,6 +654,26 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             setTimeout(() => hideScanEffect(), 800);
             break;
           }
+          case 'scroll_page': {
+            const x = (input.x as number) ?? 0;
+            const y = (input.y as number) ?? 0;
+            const sel = input.selector as string | undefined;
+            if (sel) {
+              const el = document.querySelector(sel);
+              if (!el) { sendResponse({ result: 'element not found' }); break; }
+              el.scrollBy(x, y);
+            } else {
+              const prev = window.scrollY;
+              window.scrollBy(x, y);
+              if (window.scrollY === prev) {
+                const se = document.scrollingElement || document.documentElement;
+                se.scrollTop += y;
+                se.scrollLeft += x;
+              }
+            }
+            sendResponse({ result: `scrolled by x=${x} y=${y}` });
+            break;
+          }
           case 'execute_js': {
             // Delegate to background via chrome.scripting.executeScript to bypass page CSP
             chrome.runtime.sendMessage(
@@ -672,11 +684,6 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
               }
             );
             return; // sendResponse called async via background
-          }
-          case 'screenshot': {
-            const dataUrl = await captureScreenshot();
-            sendResponse({ result: dataUrl });
-            break;
           }
           case 'modify_element': {
             // Snapshot body.innerHTML BEFORE running the code so undo is always possible
