@@ -1,8 +1,8 @@
-# AI Page Inspector
+# AI Page Assist
 
 [English](./README.md) | **中文**
 
-AI Page Inspector 是一个 Chrome MV3 扩展，将 AI 助手嵌入浏览器侧边栏。支持 Anthropic Claude、OpenAI 兼容接口和本地 Ollama 模型。你可以用自然语言检查、分析并操作任意网页。
+AI Page Assist 是一个 Chrome MV3 扩展，将 AI 助手嵌入浏览器侧边栏。支持 Anthropic Claude、OpenAI 兼容接口和本地 Ollama 模型。你可以用自然语言检查、分析并操作任意网页。
 
 ## 功能特性
 
