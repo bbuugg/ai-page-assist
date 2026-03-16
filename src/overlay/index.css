@@ -1,0 +1,248 @@
+@import "tailwindcss";
+@import "github-markdown-css/github-markdown.css";
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@theme {
+  --color-accent: #007aff;
+}
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  :root {
+    /* iOS 26 Liquid Glass — light */
+    --bg-app: linear-gradient(160deg, #e8eaf6 0%, #fce4ec 40%, #e0f7fa 100%);
+    --glass-bg: rgba(255, 255, 255, 0.45);
+    --glass-bg-strong: rgba(255, 255, 255, 0.62);
+    --glass-blur: blur(36px) saturate(220%) brightness(1.08);
+    --glass-border-top: rgba(255, 255, 255, 0.9);
+    --glass-border-bottom: rgba(255, 255, 255, 0.25);
+    --glass-border: rgba(255, 255, 255, 0.6);
+    --glass-shadow:
+      0 8px 32px rgba(80, 80, 120, 0.18),
+      0 1.5px 0 rgba(255, 255, 255, 0.85) inset,
+      0 -1px 0 rgba(180, 180, 200, 0.18) inset;
+    --glass-shadow-sm:
+      0 4px 16px rgba(80, 80, 120, 0.12), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+
+    --accent: #007aff;
+    --accent-glow: rgba(0, 122, 255, 0.28);
+    --accent-glass: rgba(0, 122, 255, 0.12);
+    --accent-send: linear-gradient(145deg, #34aaff 0%, #007aff 100%);
+
+    --text-primary: rgba(0, 0, 0, 0.82);
+    --text-secondary: rgba(0, 0, 0, 0.55);
+    --text-muted: rgba(0, 0, 0, 0.38);
+    --text-dim: rgba(0, 0, 0, 0.22);
+    --text-system: rgba(0, 0, 0, 0.38);
+    --text-assistant: rgba(0, 0, 0, 0.78);
+    --text-user: #ffffff;
+
+    --border: rgba(200, 200, 220, 0.45);
+    --border-subtle: rgba(200, 200, 220, 0.28);
+    --scrollbar: rgba(0, 0, 0, 0.15);
+    --bg-code: rgba(0, 0, 0, 0.06);
+    --bg-code-inline: rgba(0, 0, 0, 0.07);
+
+    --msg-user-bg: linear-gradient(145deg, #34aaff 0%, #007aff 100%);
+    --msg-system-bg: rgba(0, 0, 0, 0.05);
+  }
+
+  @variant dark {
+    :root {
+      /* iOS 26 Liquid Glass — dark */
+      --bg-app: linear-gradient(160deg, #0d0d1a 0%, #1a0d1a 40%, #0d1a1a 100%);
+      --glass-bg: rgba(30, 30, 50, 0.55);
+      --glass-bg-strong: rgba(40, 40, 60, 0.72);
+      --glass-blur: blur(40px) saturate(200%) brightness(0.95);
+      --glass-border-top: rgba(255, 255, 255, 0.18);
+      --glass-border-bottom: rgba(255, 255, 255, 0.05);
+      --glass-border: rgba(255, 255, 255, 0.12);
+      --glass-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.5), 0 1.5px 0 rgba(255, 255, 255, 0.1) inset,
+        0 -1px 0 rgba(0, 0, 0, 0.3) inset;
+      --glass-shadow-sm:
+        0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+
+      --accent: #0a84ff;
+      --accent-glow: rgba(10, 132, 255, 0.35);
+      --accent-glass: rgba(10, 132, 255, 0.15);
+      --accent-send: linear-gradient(145deg, #40a9ff 0%, #0a84ff 100%);
+
+      --text-primary: rgba(255, 255, 255, 0.88);
+      --text-secondary: rgba(255, 255, 255, 0.6);
+      --text-muted: rgba(255, 255, 255, 0.38);
+      --text-dim: rgba(255, 255, 255, 0.22);
+      --text-system: rgba(255, 255, 255, 0.38);
+      --text-assistant: rgba(255, 255, 255, 0.85);
+      --text-user: #ffffff;
+
+      --border: rgba(255, 255, 255, 0.14);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --scrollbar: rgba(255, 255, 255, 0.18);
+      --bg-code: rgba(0, 0, 0, 0.3);
+      --bg-code-inline: rgba(255, 255, 255, 0.1);
+
+      --msg-user-bg: linear-gradient(145deg, #40a9ff 0%, #0a84ff 100%);
+      --msg-system-bg: rgba(255, 255, 255, 0.06);
+    }
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg-app);
+    color: var(--text-primary);
+    font-family:
+      -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+      Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer utilities {
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    border-top-color: var(--glass-border-top);
+    border-bottom-color: var(--glass-border-bottom);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .glass-strong {
+    background: var(--glass-bg-strong);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    border-top-color: var(--glass-border-top);
+    border-bottom-color: var(--glass-border-bottom);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 4px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+    border-radius: 2px;
+  }
+}
+
+/* GitHub markdown-body overrides — compact fit for panel */
+.markdown-body {
+  font-size: 12.5px !important;
+  line-height: 1.55 !important;
+  color: inherit !important;
+  background: transparent !important;
+  font-family: inherit !important;
+}
+.markdown-body p {
+  margin: 0 0 6px !important;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0 !important;
+}
+.markdown-body h1 {
+  font-size: 15px !important;
+  margin: 8px 0 4px !important;
+}
+.markdown-body h2 {
+  font-size: 13.5px !important;
+  margin: 8px 0 4px !important;
+}
+.markdown-body h3 {
+  font-size: 12.5px !important;
+  margin: 8px 0 4px !important;
+}
+.markdown-body ul,
+.markdown-body ol {
+  margin: 4px 0 !important;
+  padding-left: 18px !important;
+}
+.markdown-body li {
+  margin: 2px 0 !important;
+}
+.markdown-body pre {
+  margin: 6px 0 !important;
+  border-radius: 10px !important;
+  overflow-x: auto !important;
+  max-width: 100% !important;
+}
+.markdown-body pre::-webkit-scrollbar {
+  height: 4px;
+}
+.markdown-body pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.markdown-body pre::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border-radius: 2px;
+}
+.markdown-body code {
+  font-size: 11.5px !important;
+  white-space: pre-wrap !important;
+  word-break: break-all !important;
+}
+.markdown-body pre code {
+  font-size: 11px !important;
+  white-space: pre-wrap !important;
+  word-break: break-all !important;
+}
+.markdown-body blockquote {
+  margin: 4px 0 !important;
+  padding: 0 10px !important;
+}
+.markdown-body hr {
+  margin: 8px 0 !important;
+}
+.markdown-body table {
+  font-size: 12px !important;
+}
+.markdown-body img {
+  max-width: 100% !important;
+  border-radius: 6px !important;
+}
+
+@keyframes ai-thinking-dot {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.75);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes ai-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

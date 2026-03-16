@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//cygdrive/c/Users/15086/Desktop/pen/**)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(grep -n 'onToken' dist/assets/*.js 2>/dev/null | head -5 || echo 'no dist assets')",
+      "Bash(npm uninstall react-markdown remark-gfm 2>&1 | tail -5)",
+      "Bash(npm install -D vite@^7 @tailwindcss/vite@^4 tailwindcss@^4 && npm uninstall autoprefixer postcss 2>&1 | tail -10)",
+      "Bash(pnpm build 2>&1)",
+      "Bash(cd /Users/chengyao/Workspace/chrome/ai-page-inspector && pnpm build 2>&1 | tail -10)",
+      "Bash(pnpm tsc --noEmit 2>&1 | head -40)",
+      "Bash(pnpm tsc --noEmit 2>&1)",
+      "Bash(npx tsc:*)"
+    ]
+  }
+}
