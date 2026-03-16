@@ -77,7 +77,7 @@ function postToPanel(payload: object) {
 // ---- Element selection ----
 function onMouseOver(e: MouseEvent) {
   const target = e.target as Element;
-  if (target.id === 'ai-inspector-root') return;
+  if (target.id === 'ai-assist-root') return;
   hoveredElement = target;
   target.classList.add(HIGHLIGHT_CLASS);
 }

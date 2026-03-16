@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project Overview
+
+AI Page Assist is a Chrome MV3 extension. It embeds an AI assistant (Anthropic / OpenAI-compatible / Ollama) in a side-panel iframe. The AI has access to a set of browser tools for inspecting and manipulating the current page.
+
 ## Commands
 
 ```bash
@@ -66,4 +70,32 @@ The `manifest.json` requires `storage` permission for `chrome.storage.local` acc
 
 ## Development Specifications
 
-- After developing a major feature, you should run "npx tsc" and "npm run build".
+### Build & verify
+- After every non-trivial change run `npm run build` and confirm exit code 0 before declaring done.
+- No test runner or linter is configured — build success is the only automated check.
+
+### AI tool system
+- All tools exposed to the AI are defined in `src/lib/tools.ts` (`TOOL_DEFINITIONS` array + `ToolName` union + `TOOL_UI_META` display list).
+- Adding a new tool requires: entry in `TOOL_DEFINITIONS`, entry in `ToolName`, entry in `TOOL_UI_META`, and a handler branch in `executeTool()` (also in `tools.ts`).
+- The special `ask_user` tool pauses the agentic loop and waits for a user reply via a `Promise` resolved in `ChatPanel.tsx`. It must NOT be handled by `executeTool()` — it is intercepted in `anthropic.ts` / `openai.ts` before the normal tool dispatch.
+
+### AI provider loop
+- `src/lib/ai/anthropic.ts` and `src/lib/ai/openai.ts` both run an agentic `while (continueLoop)` loop.
+- `continueLoop` is set to `true` only when tool calls are present in the response. Plain text replies (`end_turn` with no tools) stop the loop naturally.
+- `ask_user` tool: after receiving the user answer the loop must continue (`continueLoop = true`, `break` inner tool loop) so the AI sees the answer and responds. Do NOT `return` early after resolving `ask_user`.
+- `StreamCallbacks.onAskUser` is optional; if absent, `ask_user` resolves with an empty string.
+
+### ChatPanel streaming state
+- `streamBufRef` accumulates the current streaming token buffer.
+- `streamIdRef` is set to `Date.now()` when the first token of a new assistant message arrives (`null` = no message started yet).
+- Before resuming after `ask_user`, reset both refs to `''` / `null` and call `setIsThinking(true)` so the next AI response renders as a fresh message.
+
+### Ollama / OpenAI-compatible providers
+- Ollama requests are proxied through the background service worker (`streamViaBackground`) to avoid CORS issues from the extension origin.
+- If Ollama returns 403, the fix is to set the environment variable `OLLAMA_ORIGINS=*` and restart Ollama. This hint is shown automatically in the chat error message.
+
+### Key conventions
+- All `chrome.storage` access goes through `src/lib/storage.ts`.
+- Do not add error handling for scenarios that cannot happen; trust framework guarantees.
+- Keep solutions minimal — no premature abstractions, no extra configurability unless asked.
+- MCP servers are loaded/saved via `loadMcpServers` / `saveMcpServers` in `storage.ts`; disabled tools via `loadDisabledTools` / `saveDisabledTools`.

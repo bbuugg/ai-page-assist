@@ -245,7 +245,7 @@ export default function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
           <div style={{ width: 9, height: 9, borderRadius: '50%', flexShrink: 0, background: 'var(--accent-send)', boxShadow: '0 0 8px var(--accent-glow), 0 0 2px var(--accent)' }} />
           <span style={{ fontSize: 12, fontWeight: 650, color: 'var(--text-primary)', letterSpacing: '0.01em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {activeSession.title === 'New chat' ? 'AI Inspector' : activeSession.title}
+            {activeSession.title === 'New chat' ? 'AI Assist' : activeSession.title}
           </span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
