@@ -154,6 +154,80 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return false;
   }
 
+  // Tab/navigation/cookie tools from side panel
+  if (request.action === 'tabTool') {
+    const { tool, input } = request;
+    const tabId = inspectedTabId ?? activePanelTabId;
+
+    (async () => {
+      try {
+        switch (tool) {
+          case 'go_back':
+            await chrome.tabs.goBack(tabId!);
+            sendResponse({ result: 'ok' });
+            break;
+          case 'go_forward':
+            await chrome.tabs.goForward(tabId!);
+            sendResponse({ result: 'ok' });
+            break;
+          case 'refresh':
+            await chrome.tabs.reload(tabId!);
+            sendResponse({ result: 'ok' });
+            break;
+          case 'open_tab': {
+            const tab = await chrome.tabs.create({ url: input.url as string | undefined, active: true });
+            sendResponse({ result: `Opened tab ${tab.id}${input.url ? ` at ${input.url}` : ''}` });
+            break;
+          }
+          case 'close_tab': {
+            const closeId = (input.tab_id as number | undefined) ?? tabId!;
+            await chrome.tabs.remove(closeId);
+            sendResponse({ result: `Closed tab ${closeId}` });
+            break;
+          }
+          case 'switch_tab': {
+            const switchId = input.tab_id as number;
+            await chrome.tabs.update(switchId, { active: true });
+            inspectedTabId = switchId;
+            sendResponse({ result: `Switched to tab ${switchId}` });
+            break;
+          }
+          case 'list_tabs': {
+            const tabs = await chrome.tabs.query({});
+            const list = tabs.map(t => ({ id: t.id, title: t.title, url: t.url, active: t.active }));
+            sendResponse({ result: JSON.stringify(list) });
+            break;
+          }
+          case 'get_cookies': {
+            const url = input.url as string | undefined;
+            const cookies = url
+              ? await chrome.cookies.getAll({ url })
+              : await chrome.cookies.getAll({});
+            sendResponse({ result: JSON.stringify(cookies) });
+            break;
+          }
+          case 'set_cookie': {
+            await chrome.cookies.set({
+              url: input.url as string,
+              name: input.name as string,
+              value: input.value as string,
+              ...(input.domain ? { domain: input.domain as string } : {}),
+              ...(input.path ? { path: input.path as string } : {}),
+              ...(input.expires ? { expirationDate: input.expires as number } : {}),
+            });
+            sendResponse({ result: `Cookie ${input.name} set` });
+            break;
+          }
+          default:
+            sendResponse({ error: `Unknown tab tool: ${tool}` });
+        }
+      } catch (err) {
+        sendResponse({ error: (err as Error).message });
+      }
+    })();
+    return true;
+  }
+
   if (request.action === 'inspectElement') {
     const tabId = request.tabId;
     const { x, y } = request;

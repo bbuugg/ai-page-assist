@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { Settings } from '../storage';
-import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools';
+import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools/index';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { StreamCallbacks } from './types';
 import { SYSTEM_PROMPT } from './prompt';
@@ -90,8 +90,9 @@ export async function runAnthropicTurn(
       for (const tb of toolUseBlocks) {
         if (tb.name === 'ask_user') {
           const question = (tb.input as Record<string, unknown>).question as string;
+          const isYesNo = !!(tb.input as Record<string, unknown>).is_yes_no;
           const answer = callbacks.onAskUser
-            ? await callbacks.onAskUser(question)
+            ? await callbacks.onAskUser(question, isYesNo)
             : '';
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: answer });
           // Push tool result and continue loop so AI can respond with the answer

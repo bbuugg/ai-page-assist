@@ -11,7 +11,19 @@
       "Bash(cd /Users/chengyao/Workspace/chrome/ai-page-assist && pnpm build 2>&1 | tail -10)",
       "Bash(pnpm tsc --noEmit 2>&1 | head -40)",
       "Bash(pnpm tsc --noEmit 2>&1)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(pnpm add zustand)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:docs.browser-use.com)",
+      "Bash(git add -A && git diff --cached --stat)",
+      "Bash(git commit -m \"feat: smart page context - lightweight injection + extract_page_elements tool\")",
+      "Bash(git add -A && git commit -m \"fix: click_element dispatches full mouse event sequence for realistic click simulation\")",
+      "Bash(git add -A && git commit -m \"fix: remove partial streaming message from UI when user interrupts AI response\")",
+      "Bash(git add -A && git commit -m \"feat: show yes/no quick-reply buttons for ask_user questions\")",
+      "Bash(git add -A && git commit -m \"feat: ask_user tool carries is_yes_no flag, AI decides when to show yes/no buttons\")",
+      "Bash(git add -A && git commit -m \"fix: yes/no buttons compact, right-aligned next to bubble, with pop-in animation\")"
     ]
   }
 }

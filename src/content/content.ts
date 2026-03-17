@@ -1,5 +1,6 @@
 let isSelecting = false;
 let isEditingText = false;
+let sessionActive = false;
 let hoveredElement: Element | null = null;
 let lastElementData: { html: string; css: string } | null = null;
 
@@ -27,46 +28,94 @@ function applyUndoSnapshot(snapshot: UndoSnapshot) {
   }
 }
 
-// ---- HTML formatting ----
-function formatHTML(html: string): string {
-  if (!html) return '';
+// ---- DOM pruning and simplification ----
+function isElementVisible(el: Element): boolean {
+  const style = window.getComputedStyle(el);
+  return (
+    style.display !== 'none' &&
+    style.visibility !== 'hidden' &&
+    style.opacity !== '0' &&
+    (el as HTMLElement).offsetWidth > 0 &&
+    (el as HTMLElement).offsetHeight > 0
+  );
+}
+
+function getSimplifiedHTML(root: Element, maxLength = 20000): string {
   const tab = '  ';
   let formatted = '';
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  const root = doc.body.firstElementChild || doc.head.firstElementChild;
-  if (!root) return html;
+  let totalChars = 0;
 
-  function serializeNode(node: Node, depth: number) {
+  const allowedAttrs = new Set(['id', 'class', 'name', 'type', 'value', 'placeholder', 'aria-label', 'role', 'href', 'title']);
+  const skipTags = new Set(['script', 'style', 'svg', 'noscript', 'template', 'canvas', 'iframe', 'head', 'meta', 'link']);
+
+  function serialize(node: Node, depth: number) {
+    if (totalChars > maxLength) return;
+
     if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent;
-      if (text?.trim()) formatted += text.trim();
+      const text = node.textContent?.trim();
+      if (text) {
+        const truncated = text.length > 500 ? text.slice(0, 500) + '...' : text;
+        formatted += truncated;
+        totalChars += truncated.length;
+      }
       return;
     }
+
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const el = node as Element;
-    const voidElements = ['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'];
     const tag = el.tagName.toLowerCase();
-    const isVoid = voidElements.includes(tag);
+
+    if (skipTags.has(tag)) return;
+    if (!isElementVisible(el) && tag !== 'body') return;
+
     const indent = tab.repeat(depth);
     let openTag = `<${tag}`;
-    for (const attr of el.attributes) openTag += ` ${attr.name}="${attr.value}"`;
+    
+    for (const attr of el.attributes) {
+      if (allowedAttrs.has(attr.name)) {
+        openTag += ` ${attr.name}="${attr.value}"`;
+      }
+    }
+
+    const voidElements = ['area','base','br','col','embed','hr','img','input','link','meta','param','source','track','wbr'];
+    const isVoid = voidElements.includes(tag);
     openTag += isVoid ? ' />' : '>';
-    if (formatted.length > 0) formatted += '\n';
+
+    if (formatted.length > 0 && !formatted.endsWith('\n')) formatted += '\n';
     formatted += indent + openTag;
+    totalChars += indent.length + openTag.length;
+
     if (!isVoid) {
-      const children = Array.from(node.childNodes);
-      const hasElementChild = children.some(c => c.nodeType === Node.ELEMENT_NODE);
+      const children = Array.from(el.childNodes);
+      const hasElementChild = children.some(c => c.nodeType === Node.ELEMENT_NODE && !skipTags.has((c as Element).tagName?.toLowerCase()));
+      
       if (hasElementChild) {
-        children.forEach(c => serializeNode(c, depth + 1));
-        formatted += '\n' + indent + `</${tag}>`;
+        children.forEach(c => serialize(c, depth + 1));
+        if (!formatted.endsWith('\n')) formatted += '\n';
+        formatted += indent + `</${tag}>`;
+        totalChars += indent.length + tag.length + 3;
       } else {
         const text = el.textContent?.trim() ?? '';
-        formatted += text + `</${tag}>`;
+        const truncated = text.length > 200 ? text.slice(0, 200) + '...' : text;
+        formatted += truncated + `</${tag}>`;
+        totalChars += truncated.length + tag.length + 3;
       }
     }
   }
-  serializeNode(root, 0);
+
+  serialize(root, 0);
   return formatted;
+}
+
+// ---- Legacy HTML formatting (still used for snippet views) ----
+function formatHTML(html: string): string {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const root = doc.body.firstElementChild || doc.head.firstElementChild;
+  if (!root) return html;
+  
+  // Re-use pruning logic for consistency but with looser limits
+  return getSimplifiedHTML(root, 10000);
 }
 
 // ---- Post message to side panel via background ----
@@ -234,6 +283,7 @@ function showScanEffect(persistent = false) {
   merge.appendChild(mn1); merge.appendChild(mn2);
   filter.appendChild(blur); filter.appendChild(merge);
 
+
   defs.appendChild(grad1); defs.appendChild(grad2); defs.appendChild(filter);
   svg.appendChild(defs);
 
@@ -310,14 +360,18 @@ const AI_CURSOR_SVG = `<svg width="32" height="36" viewBox="0 0 32 36" fill="non
   </g>
 </svg>`;
 
+// Hotspot offset: arrow tip is at approximately (5, 2) within the 32x36 SVG
+const AI_CURSOR_HOTSPOT_X = 5;
+const AI_CURSOR_HOTSPOT_Y = 2;
+
 function createAICursorEl(): HTMLDivElement {
   const cursor = document.createElement('div');
   cursor.id = 'ai-fx-cursor';
   cursor.innerHTML = AI_CURSOR_SVG;
   Object.assign(cursor.style, {
     position: 'fixed',
-    left: '0',
-    top: '0',
+    left: `-${AI_CURSOR_HOTSPOT_X}px`,
+    top: `-${AI_CURSOR_HOTSPOT_Y}px`,
     zIndex: '2147483647',
     pointerEvents: 'none',
     willChange: 'transform, opacity',
@@ -532,15 +586,27 @@ function sendToolError(id: string, type: string, error: string) {
 
 
 // ---- Message listener from background / side panel ----
+// Clean up AI visual effects when page is restored from BFCache
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) {
+    sessionActive = false;
+    const scanEl = document.getElementById('ai-fx-scan');
+    if (scanEl) scanEl.remove();
+    hideAICursor();
+  }
+});
+
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   const { action } = request;
 
   if (action === 'showBorderFx') {
+    sessionActive = true;
     showScanEffect(true);
     showAICursorIdle();
     return false;
   }
   if (action === 'hideBorderFx') {
+    sessionActive = false;
     const el = document.getElementById('ai-fx-scan');
     if (el) {
       el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 400, fill: 'forwards' })
@@ -577,20 +643,20 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
       try {
         switch (tool) {
           case 'get_element_html':
-            showScanEffect();
+            if (!sessionActive) showScanEffect();
             sendResponse({ result: lastElementData?.html ?? 'No element selected.' });
-            setTimeout(() => hideScanEffect(), 800);
+            if (!sessionActive) setTimeout(() => hideScanEffect(), 800);
             break;
           case 'get_element_css':
-            showScanEffect();
+            if (!sessionActive) showScanEffect();
             sendResponse({ result: lastElementData?.css ?? 'No element selected.' });
-            setTimeout(() => hideScanEffect(), 800);
+            if (!sessionActive) setTimeout(() => hideScanEffect(), 800);
             break;
           case 'get_full_page_html': {
-            showScanEffect();
-            const html = document.documentElement.outerHTML;
+            if (!sessionActive) showScanEffect();
+            const html = getSimplifiedHTML(document.documentElement);
             sendResponse({ result: html });
-            setTimeout(() => hideScanEffect(), 800);
+            if (!sessionActive) setTimeout(() => hideScanEffect(), 800);
             break;
           }
           case 'highlight_element': {
@@ -619,12 +685,20 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             await showAICursor(input.selector as string);
             const el = document.querySelector(input.selector as string) as HTMLElement | null;
             if (!el) { sendResponse({ error: `Element not found: ${input.selector}` }); break; }
-            el.click();
+            const rect = el.getBoundingClientRect();
+            const x = rect.left + rect.width / 2;
+            const y = rect.top + rect.height / 2;
+            const evOpts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
+            el.dispatchEvent(new PointerEvent('pointerdown', { ...evOpts, pointerId: 1 }));
+            el.dispatchEvent(new MouseEvent('mousedown', evOpts));
+            el.dispatchEvent(new PointerEvent('pointerup', { ...evOpts, pointerId: 1 }));
+            el.dispatchEvent(new MouseEvent('mouseup', evOpts));
+            el.dispatchEvent(new MouseEvent('click', evOpts));
             sendResponse({ result: 'ok' });
             break;
           }
           case 'query_page': {
-            showScanEffect();
+            if (!sessionActive) showScanEffect();
             const selector = (input.selector as string | undefined) || '*';
             const keyword = (input.keyword as string | undefined)?.toLowerCase() ?? '';
             const limit = Math.min(Number(input.limit) || 10, 30);
@@ -635,15 +709,8 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             const results = matched.slice(0, limit).map(el => {
               const tag = el.tagName.toLowerCase();
               const text = (el.textContent ?? '').trim().slice(0, 200);
-              const rawHtml = el.outerHTML.slice(0, 2000);
-              const cleanHtml = rawHtml
-                .replace(/<script[\s\S]*?<\/script>/gi, '')
-                .replace(/<style[\s\S]*?<\/style>/gi, '')
-                .replace(/<svg[\s\S]*?<\/svg>/gi, '<svg/>')
-                .replace(/\s+on\w+="[^"]*"/gi, '')
-                .replace(/\s+on\w+='[^']*'/gi, '')
-                .replace(/\s+data-[\w-]+=(?:"[^"]*"|'[^']*')/gi, '')
-                .slice(0, 1000);
+              // Use getSimplifiedHTML for cleaner snippets
+              const cleanHtml = getSimplifiedHTML(el, 1000);
               return `<${tag}> text: ${JSON.stringify(text)}\nhtml: ${cleanHtml}`;
             });
             if (results.length === 0) {
@@ -651,7 +718,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             } else {
               sendResponse({ result: `Found ${results.length} element(s):\n\n${results.join('\n\n---\n\n')}` });
             }
-            setTimeout(() => hideScanEffect(), 800);
+            if (!sessionActive) setTimeout(() => hideScanEffect(), 800);
             break;
           }
           case 'scroll_page': {
@@ -672,6 +739,128 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
               }
             }
             sendResponse({ result: `scrolled by x=${x} y=${y}` });
+            break;
+          }
+          case 'send_keys': {
+            const keyTarget = input.selector
+              ? document.querySelector(input.selector as string) as HTMLElement | null
+              : (document.activeElement as HTMLElement | null) ?? document.body;
+            if (input.selector && !keyTarget) { sendResponse({ error: `Element not found: ${input.selector}` }); break; }
+            const key = input.key as string;
+            const evOpts = { key, code: key, bubbles: true, cancelable: true };
+            keyTarget!.dispatchEvent(new KeyboardEvent('keydown', evOpts));
+            keyTarget!.dispatchEvent(new KeyboardEvent('keypress', evOpts));
+            keyTarget!.dispatchEvent(new KeyboardEvent('keyup', evOpts));
+            sendResponse({ result: `Sent key ${key}` });
+            break;
+          }
+          case 'hover_element': {
+            await showAICursor(input.selector as string);
+            const hoverEl = document.querySelector(input.selector as string) as HTMLElement | null;
+            if (!hoverEl) { sendResponse({ error: `Element not found: ${input.selector}` }); break; }
+            hoverEl.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+            hoverEl.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+            hoverEl.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+            sendResponse({ result: `Hovered: ${input.selector}` });
+            break;
+          }
+          case 'select_option': {
+            await showAICursor(input.selector as string);
+            const selectEl = document.querySelector(input.selector as string) as HTMLSelectElement | null;
+            if (!selectEl) { sendResponse({ error: `Element not found: ${input.selector}` }); break; }
+            const val = input.value as string;
+            const opt = Array.from(selectEl.options).find(o => o.value === val || o.text === val);
+            if (!opt) { sendResponse({ error: `Option not found: ${val}` }); break; }
+            selectEl.value = opt.value;
+            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+            sendResponse({ result: `Selected: ${opt.text}` });
+            break;
+          }
+          case 'clear_input': {
+            await showAICursor(input.selector as string);
+            const clearEl = document.querySelector(input.selector as string) as HTMLInputElement | HTMLTextAreaElement | null;
+            if (!clearEl) { sendResponse({ error: `Element not found: ${input.selector}` }); break; }
+            const proto = clearEl.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+            if (setter) setter.call(clearEl, '');
+            else clearEl.value = '';
+            clearEl.dispatchEvent(new Event('input', { bubbles: true }));
+            clearEl.dispatchEvent(new Event('change', { bubbles: true }));
+            sendResponse({ result: 'ok' });
+            break;
+          }
+          case 'wait': {
+            const ms = Math.min(Number(input.ms) || 1000, 10000);
+            await new Promise(r => setTimeout(r, ms));
+            sendResponse({ result: `Waited ${ms}ms` });
+            break;
+          }
+          case 'wait_for_element': {
+            const waitSel = input.selector as string;
+            const timeout = Math.min(Number(input.timeout_ms) || 5000, 15000);
+            const existing = document.querySelector(waitSel);
+            if (existing) { sendResponse({ result: `Element found: ${waitSel}` }); break; }
+            const waitResult = await new Promise<string>((resolve) => {
+              const timer = setTimeout(() => {
+                observer.disconnect();
+                resolve(`Timeout: element not found within ${timeout}ms`);
+              }, timeout);
+              const observer = new MutationObserver(() => {
+                if (document.querySelector(waitSel)) {
+                  clearTimeout(timer);
+                  observer.disconnect();
+                  resolve(`Element found: ${waitSel}`);
+                }
+              });
+              observer.observe(document.documentElement, { childList: true, subtree: true });
+            });
+            sendResponse({ result: waitResult });
+            break;
+          }
+          case 'scroll_to_element': {
+            await showAICursor(input.selector as string);
+            const scrollEl = document.querySelector(input.selector as string);
+            if (!scrollEl) { sendResponse({ error: `Element not found: ${input.selector}` }); break; }
+            scrollEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            sendResponse({ result: `Scrolled to: ${input.selector}` });
+            break;
+          }
+          case 'drag_and_drop': {
+            const fromEl = document.querySelector(input.from_selector as string) as HTMLElement | null;
+            const toEl = document.querySelector(input.to_selector as string) as HTMLElement | null;
+            if (!fromEl) { sendResponse({ error: `Source not found: ${input.from_selector}` }); break; }
+            if (!toEl) { sendResponse({ error: `Target not found: ${input.to_selector}` }); break; }
+            await showAICursor(input.from_selector as string);
+            const fromRect = fromEl.getBoundingClientRect();
+            const toRect = toEl.getBoundingClientRect();
+            const dt = new DataTransfer();
+            fromEl.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: dt, clientX: fromRect.left + fromRect.width/2, clientY: fromRect.top + fromRect.height/2 }));
+            fromEl.dispatchEvent(new DragEvent('drag', { bubbles: true, dataTransfer: dt }));
+            toEl.dispatchEvent(new DragEvent('dragover', { bubbles: true, dataTransfer: dt, clientX: toRect.left + toRect.width/2, clientY: toRect.top + toRect.height/2 }));
+            toEl.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: dt, clientX: toRect.left + toRect.width/2, clientY: toRect.top + toRect.height/2 }));
+            fromEl.dispatchEvent(new DragEvent('dragend', { bubbles: true, dataTransfer: dt }));
+            sendResponse({ result: `Dragged from ${input.from_selector} to ${input.to_selector}` });
+            break;
+          }
+          case 'get_dom_state': {
+            const interactive = Array.from(document.querySelectorAll(
+              'a[href], button, input, select, textarea, [onclick], [role="button"], [role="link"], [role="tab"], [role="menuitem"], [tabindex]'
+            )).filter(el => {
+              const r = el.getBoundingClientRect();
+              return r.width > 0 && r.height > 0;
+            }).slice(0, 50).map((el, i) => {
+              const tag = el.tagName.toLowerCase();
+              const text = (el.textContent ?? '').trim().slice(0, 80);
+              const attrs: string[] = [];
+              if (el.id) attrs.push(`id="${el.id}"`);
+              if ((el as HTMLElement).className) attrs.push(`class="${(el as HTMLElement).className.toString().slice(0, 40)}"`);
+              if ((el as HTMLInputElement).type) attrs.push(`type="${(el as HTMLInputElement).type}"`);
+              if ((el as HTMLAnchorElement).href) attrs.push(`href="${(el as HTMLAnchorElement).href.slice(0, 60)}"`);
+              if ((el as HTMLInputElement).placeholder) attrs.push(`placeholder="${(el as HTMLInputElement).placeholder}"`);
+              if ((el as HTMLInputElement).value) attrs.push(`value="${(el as HTMLInputElement).value.slice(0, 40)}"`);
+              return `[${i}] <${tag} ${attrs.join(' ')}>${text}</${tag}>`;
+            });
+            sendResponse({ result: `Page: ${document.title}\nURL: ${location.href}\n\nInteractive elements:\n${interactive.join('\n')}` });
             break;
           }
           case 'execute_js': {
@@ -734,6 +923,68 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             el.dispatchEvent(new Event('change', { bubbles: true }));
             el.dispatchEvent(new Event('input', { bubbles: true }));
             sendResponse({ result: `Uploaded ${input.filename} to ${input.selector}` });
+            break;
+          }
+          case 'extract_page_elements': {
+            const selectors: string[] = Array.isArray(input.selectors) ? (input.selectors as string[]) : [];
+            const keywords: string[] = Array.isArray(input.keywords) ? (input.keywords as string[]) : [];
+            const limit: number = typeof input.limit === 'number' ? input.limit : 5;
+
+            function elementSummary(el: Element): object {
+              const html = el.outerHTML;
+              const truncatedHtml = html.length > 600 ? html.slice(0, 600) + '...' : html;
+              const text = (el.textContent ?? '').trim().slice(0, 200);
+              // Build a unique CSS path (up to 4 ancestors)
+              const parts: string[] = [];
+              let cur: Element | null = el;
+              for (let i = 0; i < 5 && cur && cur !== document.documentElement; i++) {
+                let seg = cur.tagName.toLowerCase();
+                if (cur.id) { seg += `#${cur.id}`; parts.unshift(seg); break; }
+                if (cur.className) seg += '.' + [...cur.classList].slice(0, 2).join('.');
+                parts.unshift(seg);
+                cur = cur.parentElement;
+              }
+              return {
+                tag: el.tagName.toLowerCase(),
+                id: el.id || undefined,
+                class: el.className || undefined,
+                text: text || undefined,
+                html: truncatedHtml,
+                path: parts.join(' > '),
+              };
+            }
+
+            const seen = new Set<Element>();
+            const results: object[] = [];
+
+            for (const sel of selectors) {
+              try {
+                const matches = Array.from(document.querySelectorAll(sel)).slice(0, limit);
+                for (const el of matches) {
+                  if (!seen.has(el)) { seen.add(el); results.push(elementSummary(el)); }
+                }
+              } catch { /* invalid selector, skip */ }
+            }
+
+            for (const kw of keywords) {
+              const lower = kw.toLowerCase();
+              const all = Array.from(document.querySelectorAll('body *'));
+              let count = 0;
+              for (const el of all) {
+                if (count >= limit) break;
+                if (!seen.has(el) && el.children.length === 0 && (el.textContent ?? '').toLowerCase().includes(lower)) {
+                  seen.add(el);
+                  results.push(elementSummary(el));
+                  count++;
+                }
+              }
+            }
+
+            if (results.length === 0) {
+              sendResponse({ result: 'No elements found for the given selectors/keywords.' });
+            } else {
+              sendResponse({ result: JSON.stringify(results, null, 2) });
+            }
             break;
           }
           default:

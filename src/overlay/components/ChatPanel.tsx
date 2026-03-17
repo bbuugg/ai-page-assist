@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, memo } from 'react';
+import { useChatStore } from '../store';
 import { marked, Renderer } from 'marked';
 
 const renderer = new Renderer();
@@ -12,13 +13,16 @@ import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { ChatMessage } from '../App';
 import { runConversationTurn } from '../../lib/ai';
 import { loadMcpServers, saveMcpServers, loadDisabledTools, saveDisabledTools, type ModelConfig, type McpServerConfig } from '../../lib/storage';
-import { executeTool } from '../../lib/tools';
+import { executeTool } from '../../lib/tools/index';
 import { fetchMcpTools, type McpTool } from '../../lib/mcp';
 
 interface Props {
+  sessionId: string;
   messages: ChatMessage[];
   onAddMessage: (role: ChatMessage['role'], text: string, toolMeta?: string) => void;
   onPatchLastToolResult: (result: string) => void;
+  onRemoveLastStreamingMessage: () => void;
+  onMarkLastMessageAsAskUser: () => void;
   onAppendRawLog: (log: { request: string; response: string }) => void;
   elementData: { html: string; css: string } | null;
   history: MessageParam[];
@@ -96,19 +100,36 @@ const ToolMessage = memo(function ToolMessage({ msg }: { msg: ChatMessage }) {
   );
 });
 
-export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResult, onAppendRawLog, elementData, history, onHistoryChange, models, activeModelId, onActiveModelIdChange }: Props) {
-  const [input, setInput] = useState('');
-  const [isThinking, setIsThinking] = useState(false);
+export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLastToolResult, onRemoveLastStreamingMessage, onMarkLastMessageAsAskUser, onAppendRawLog, elementData, history, onHistoryChange, models, activeModelId, onActiveModelIdChange }: Props) {
+  const store = useChatStore();
+  const sess = store.getSession(sessionId);
+  const input = sess.input;
+  const setInput = (v: string) => store.setInput(sessionId, v);
+  const isThinking = sess.isThinking;
+  const setIsThinking = (v: boolean) => store.setIsThinking(sessionId, v);
   const [unreadCount, setUnreadCount] = useState(0);
   const historyRef = useRef<MessageParam[]>(history);
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
-  const streamBufRef = useRef('');
-  const streamIdRef = useRef<number | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  // streamBuf, streamId, abortController, askUserResolver live in store
+  const streamBufRef = {
+    get current() { return useChatStore.getState().getSession(sessionId).streamBuf; },
+    set current(v: string) { useChatStore.getState().setStreamBuf(sessionId, v); },
+  };
+  const streamIdRef = {
+    get current() { return useChatStore.getState().getSession(sessionId).streamId; },
+    set current(v: number | null) { useChatStore.getState().setStreamId(sessionId, v); },
+  };
+  const abortRef = {
+    get current() { return useChatStore.getState().getSession(sessionId).abortController; },
+    set current(v: AbortController | null) { useChatStore.getState().setAbortController(sessionId, v); },
+  };
+  const askUserResolverRef = {
+    get current() { return useChatStore.getState().getSession(sessionId).askUserResolver; },
+    set current(v: ((answer: string) => void) | null) { useChatStore.getState().setAskUserResolver(sessionId, v); },
+  };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const askUserResolverRef = useRef<((answer: string) => void) | null>(null);
   const [showMcpPopover, setShowMcpPopover] = useState(false);
   const [mcpPopoverPos, setMcpPopoverPos] = useState<{ bottom: number; left: number } | null>(null);
   const mcpBtnRef = useRef<HTMLButtonElement>(null);
@@ -117,11 +138,31 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
   const [mcpTools, setMcpTools] = useState<Record<string, McpTool[]>>({});
   const [mcpToolsLoading, setMcpToolsLoading] = useState<Record<string, boolean>>({});
   const [mcpExpandedServers, setMcpExpandedServers] = useState<Record<string, boolean>>({});
+  const mcpPopoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadMcpServers().then(setMcpServers);
     loadDisabledTools().then(setDisabledTools);
   }, []);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      const target = e.target as Node;
+      if (showMcpPopover && 
+          mcpPopoverRef.current && !mcpPopoverRef.current.contains(target) && 
+          mcpBtnRef.current && !mcpBtnRef.current.contains(target)) {
+        setShowMcpPopover(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMcpPopover]);
+
+  useEffect(() => {
+    const abort = useChatStore.getState().getSession(sessionId).abortController;
+    if (abort) abort.abort();
+    useChatStore.getState().resetSession(sessionId);
+  }, [sessionId]);
 
   async function refreshMcpToolsForServer(srv: McpServerConfig) {
     setMcpToolsLoading((prev) => ({ ...prev, [srv.id]: true }));
@@ -208,8 +249,8 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
     onHistoryChange(next);
   }, [elementData]);
 
-  async function handleSend() {
-    const text = input.trim();
+  async function handleSend(override?: string) {
+    const text = (override ?? input).trim();
     if (!text) return;
 
     // If AI is waiting for user answer (ask_user tool), resolve it
@@ -222,6 +263,7 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
       streamBufRef.current = '';
       streamIdRef.current = null;
       setIsThinking(true);
+      chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'showBorderFx' });
       resolve(text);
       return;
     }
@@ -229,6 +271,11 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
     // If AI is currently responding, abort it and preserve context
     if (abortRef.current) {
       abortRef.current.abort();
+      // Remove the partial streaming message from UI
+      if (streamIdRef.current !== null) {
+        onRemoveLastStreamingMessage();
+        streamIdRef.current = null;
+      }
       // Save partial assistant response into history if any
       if (streamBufRef.current) {
         const partial = streamBufRef.current;
@@ -236,10 +283,11 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
         historyRef.current = next;
         onHistoryChange(next);
       }
+      streamBufRef.current = '';
       abortRef.current = null;
     }
 
-    setInput('');
+    if (!override) setInput('');
     onAddMessage('user', text);
     setIsThinking(true);
     chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'showBorderFx' });
@@ -261,45 +309,75 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
     }
     const settings = activeModel;
 
-    // Silently inject current page HTML as hidden context before each turn
+    // Silently inject current page HTML as hidden context if missing or stale
     const PAGE_CTX_MARKER = '[__page_ctx__]';
-    let baseHistory = historyRef.current.filter(
-      (m) => !(m.role === 'user' && typeof m.content === 'string' && m.content.startsWith(PAGE_CTX_MARKER))
-    );
-    try {
-      const pageResult = await executeTool('get_full_page_html', {}); // tagging is done inside the tool handler
-      if (pageResult.content && typeof pageResult.content === 'string') {
-        // Strip noisy content to maximise useful signal within token budget
-        const compressed = pageResult.content
-          .replace(/<script[\s\S]*?<\/script>/gi, '')
-          .replace(/<style[\s\S]*?<\/style>/gi, '')
-          .replace(/<svg[\s\S]*?<\/svg>/gi, '')
-          .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
-          .replace(/<template[\s\S]*?<\/template>/gi, '')
-          .replace(/<canvas[^>]*>[\s\S]*?<\/canvas>/gi, '')
-          .replace(/<!--[\s\S]*?-->/g, '')
-          .replace(/\s+on\w+="[^"]*"/gi, '')
-          .replace(/\s+on\w+='[^']*'/gi, '')
-          .replace(/\s+data-[\w-]+=(?:"[^"]*"|'[^']*')/gi, '')
-          .replace(/\s{2,}/g, ' ')
-          .trim();
-        const truncated = compressed.slice(0, 20000);
-        // Also get current page URL so AI can resolve relative URLs
-        const pageUrl = await new Promise<string>((resolve) => {
-          chrome.runtime.sendMessage({ action: 'getActiveTab' }, (resp: { tabId?: number } | undefined) => {
-            if (resp?.tabId) {
-              chrome.tabs?.get?.(resp.tabId, (tab) => resolve(tab?.url ?? window.location.href));
-            } else resolve(window.location.href);
-          });
-        }).catch(() => window.location.href);
-        const ctxMsg: MessageParam = { role: 'user', content: `${PAGE_CTX_MARKER}\nCurrent page URL: ${pageUrl}\nCurrent page HTML (auto-injected, do not reference this marker to the user):\n${truncated}` };
-        const ackMsg: MessageParam = { role: 'assistant', content: 'Page context received.' };
-        baseHistory = [ctxMsg, ackMsg, ...baseHistory.filter(
-          (m) => !(m.role === 'assistant' && typeof m.content === 'string' && m.content === 'Page context received.')
-        )];
+    let baseHistory = historyRef.current;
+    
+    const lastContextMsg = historyRef.current.find(m => m.role === 'user' && typeof m.content === 'string' && m.content.startsWith(PAGE_CTX_MARKER));
+    
+    // Get current page URL
+    const pageUrl = await new Promise<string>((resolve) => {
+      chrome.runtime.sendMessage({ action: 'getActiveTab' }, (resp: { tabId?: number } | undefined) => {
+        if (resp?.tabId) {
+          chrome.tabs?.get?.(resp.tabId, (tab) => resolve(tab?.url ?? window.location.href));
+        } else resolve(window.location.href);
+      });
+    }).catch(() => window.location.href);
+
+    const isStale = lastContextMsg && typeof lastContextMsg.content === 'string' && !lastContextMsg.content.includes(`Current page URL: ${pageUrl}`);
+
+    if (!lastContextMsg || isStale) {
+      try {
+        // Inject lightweight context: URL + title + plain-text summary only.
+        // AI uses extract_page_elements / query_page tools to find specific elements.
+        const summaryResult = await executeTool('execute_js', {
+          code: `(function() {
+  const title = document.title || '';
+  // Walk visible text nodes, skip script/style/noscript
+  const skip = new Set(['SCRIPT','STYLE','NOSCRIPT','HEAD']);
+  const parts = [];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  let node;
+  while ((node = walker.nextNode()) && parts.join(' ').length < 3000) {
+    const p = node.parentElement;
+    if (!p || skip.has(p.tagName)) continue;
+    const t = node.textContent.trim();
+    if (t.length > 1) parts.push(t);
+  }
+  return JSON.stringify({ title, summary: parts.join(' ').slice(0, 3000) });
+})()`,
+        });
+        if (summaryResult.content && typeof summaryResult.content === 'string') {
+          let title = '';
+          let summary = '';
+          try {
+            const parsed = JSON.parse(summaryResult.content);
+            title = parsed.title ?? '';
+            summary = parsed.summary ?? '';
+          } catch {
+            summary = summaryResult.content.slice(0, 3000);
+          }
+          const ctxMsg: MessageParam = {
+            role: 'user',
+            content:
+              `${PAGE_CTX_MARKER}\n` +
+              `Current page URL: ${pageUrl}\n` +
+              `Page title: ${title}\n` +
+              `Page text summary (auto-injected, do not reference this marker to the user):\n${summary}`,
+          };
+          const ackMsg: MessageParam = { role: 'assistant', content: 'Page context received.' };
+
+          // Remove old context if any
+          const filtered = historyRef.current.filter(
+            (m) => !(m.role === 'user' && typeof m.content === 'string' && m.content.startsWith(PAGE_CTX_MARKER)) &&
+                   !(m.role === 'assistant' && typeof m.content === 'string' && m.content === 'Page context received.')
+          );
+
+          baseHistory = [ctxMsg, ackMsg, ...filtered];
+        }
+      } catch (e) {
+        console.warn('Failed to auto-inject page context:', e);
       }
-    } catch {
-      // Page fetch failed — proceed without page context
     }
 
     const newHistory: MessageParam[] = [...baseHistory, { role: 'user', content: text }];
@@ -339,11 +417,13 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
           onDone: () => {},
           onError: (err) => { throw err; },
           onRawLog: (request, response) => { onAppendRawLog({ request, response }); },
-          onAskUser: (question) => {
+          onAskUser: (question, isYesNo) => {
             streamBufRef.current = '';
             streamIdRef.current = null;
             setIsThinking(false);
+            chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'hideBorderFx' });
             onAddMessage('assistant', question);
+            if (isYesNo) onMarkLastMessageAsAskUser();
             return new Promise<string>((resolve) => {
               askUserResolverRef.current = resolve;
             });
@@ -449,27 +529,43 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
                   {m.text}
                 </div>
               ) : (
-                <div className="glass ai-markdown" style={{
-                  maxWidth: '92%',
-                  padding: '9px 13px',
-                  borderRadius: '5px 18px 18px 18px',
-                  fontSize: 12.5,
-                  color: 'var(--text-assistant)',
-                  lineHeight: 1.55,
-                  wordBreak: 'break-word',
-                }}>
-                  <div
-                  className="markdown-body"
-                  style={{ background: 'transparent', fontSize: 'inherit', color: 'inherit', wordBreak: 'break-word', overflowWrap: 'break-word' }}
-                  dangerouslySetInnerHTML={{ __html: marked.parse(m.text) as string }}
-                  onClick={(e) => {
-                    const a = (e.target as HTMLElement).closest('a');
-                    if (a?.href) {
-                      e.preventDefault();
-                      chrome.tabs.create({ url: a.href });
-                    }
-                  }}
-                />
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+                  <div className="glass ai-markdown" style={{
+                    maxWidth: '92%',
+                    padding: '9px 13px',
+                    borderRadius: '5px 18px 18px 18px',
+                    fontSize: 12.5,
+                    color: 'var(--text-assistant)',
+                    lineHeight: 1.55,
+                    wordBreak: 'break-word',
+                  }}>
+                    <div
+                    className="markdown-body"
+                    style={{ background: 'transparent', fontSize: 'inherit', color: 'inherit', wordBreak: 'break-word', overflowWrap: 'break-word' }}
+                    dangerouslySetInnerHTML={{ __html: marked.parse(m.text) as string }}
+                    onClick={(e) => {
+                      const a = (e.target as HTMLElement).closest('a');
+                      if (a?.href) {
+                        e.preventDefault();
+                        chrome.tabs.create({ url: a.href });
+                      }
+                    }}
+                  />
+                  </div>
+                  {m.isAskUser && sess.askUserResolver !== null && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, animation: 'ai-pop-in 0.22s cubic-bezier(0.34,1.56,0.64,1)', flexShrink: 0 }}>
+                      <button
+                        onClick={() => { void handleSend('yes'); }}
+                        title="Yes"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', border: '1.5px solid var(--accent)', background: 'transparent', cursor: 'pointer', color: 'var(--accent)', fontSize: 11, padding: 0, lineHeight: 1 }}
+                      >✓</button>
+                      <button
+                        onClick={() => { void handleSend('no'); }}
+                        title="No"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: '50%', border: '1.5px solid var(--text-muted)', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 11, padding: 0, lineHeight: 1 }}
+                      >✗</button>
+                    </div>
+                  )}
                 </div>
               )}
               {m.rawLogs && m.rawLogs.length > 0 && <RawLogPanel logs={m.rawLogs} />}
@@ -618,6 +714,7 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
                 {/* MCP Popover */}
                 {showMcpPopover && mcpPopoverPos && (
                   <div
+                    ref={mcpPopoverRef}
                     style={{
                       position: 'fixed',
                       bottom: mcpPopoverPos.bottom,
@@ -828,7 +925,7 @@ export default function ChatPanel({ messages, onAddMessage, onPatchLastToolResul
               </button>
             ) : (
               <button
-                onClick={handleSend}
+                onClick={() => { void handleSend(); }}
                 disabled={!input.trim()}
                 title="Send"
                 style={{

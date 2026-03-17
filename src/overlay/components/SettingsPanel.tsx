@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { loadModels, saveModels, loadDisabledTools, saveDisabledTools, loadMcpServers, saveMcpServers, type ModelConfig, type Provider, PROVIDER_DEFAULTS, type McpServerConfig } from '../../lib/storage';
 import type { McpTransportType } from '../../lib/mcp';
-import { TOOL_META } from '../../lib/tools';
+import { TOOL_META } from '../../lib/tools/index';
 import { fetchMcpTools, type McpTool } from '../../lib/mcp';
 
 interface Props {

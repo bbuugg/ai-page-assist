@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import type { Settings } from '../storage';
-import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools';
+import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools/index';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { StreamCallbacks } from './types';
 import { SYSTEM_PROMPT } from './prompt';
@@ -226,8 +226,9 @@ export async function runOpenAITurn(
       const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
       for (const tb of toolUseBlocks) {
         if (tb.name === 'ask_user') {
-          const question = (tb.input as { question?: string }).question ?? 'Please provide more information.';
-          const answer = callbacks.onAskUser ? await callbacks.onAskUser(question) : '';
+          const question = (tb.input as { question?: string; is_yes_no?: boolean }).question ?? 'Please provide more information.';
+          const isYesNo = !!(tb.input as { is_yes_no?: boolean }).is_yes_no;
+          const answer = callbacks.onAskUser ? await callbacks.onAskUser(question, isYesNo) : '';
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: answer });
           // Do not call onToolCall/onToolResult for ask_user — UI handles it via onAskUser
           continue;

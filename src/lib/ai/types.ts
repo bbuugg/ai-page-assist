@@ -9,5 +9,5 @@ export interface StreamCallbacks {
   onError: (err: Error) => void;
   onRawLog?: (request: string, response: string) => void;
   /** Called when AI uses ask_user tool. Resolve the promise with the user's answer to continue. */
-  onAskUser?: (question: string) => Promise<string>;
+  onAskUser?: (question: string, isYesNo: boolean) => Promise<string>;
 }

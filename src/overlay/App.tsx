@@ -18,6 +18,7 @@ export interface ChatMessage {
   toolMeta?: string;
   toolResult?: string;
   rawLogs?: { request: string; response: string }[];
+  isAskUser?: boolean;
 }
 
 function formatDate(ts: number) {
@@ -113,6 +114,28 @@ export default function App() {
     });
   }
 
+  function markLastMessageAsAskUser() {
+    setActiveSession((prev) => {
+      const msgs = [...prev.messages];
+      const last = msgs[msgs.length - 1];
+      if (last?.role === 'assistant') {
+        msgs[msgs.length - 1] = { ...last, isAskUser: true };
+      }
+      return { ...prev, messages: msgs };
+    });
+  }
+
+  function removeLastStreamingMessage() {
+    setActiveSession((prev) => {
+      const msgs = prev.messages;
+      const last = msgs[msgs.length - 1];
+      if (last?.role === 'assistant') {
+        return { ...prev, messages: msgs.slice(0, -1) };
+      }
+      return prev;
+    });
+  }
+
   function patchLastToolResult(result: string) {
     setActiveSession((prev) => {
       const messages = [...prev.messages];
@@ -166,8 +189,10 @@ export default function App() {
   function handleNewSession() {
     switchingRef.current = true;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'hideBorderFx' });
     setActiveSession(newSession());
     msgIdRef.current = 0;
+    setIsLoading(false);
     setShowHistory(false);
     setShowSettings(false);
     switchingRef.current = false;
@@ -277,7 +302,7 @@ export default function App() {
 
       {/* History panel */}
       {showHistory && (
-        <div ref={historyPanelRef} className="shrink-0" style={{ borderBottom: '1px solid var(--border-subtle)', maxHeight: 280, overflowY: 'auto', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div ref={historyPanelRef} className="flex-1 min-h-0 scrollbar-thin" style={{ borderBottom: '1px solid var(--border-subtle)', overflowY: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {sessions.length === 0 && (
             <div style={{ fontSize: 12, color: 'var(--text-dim)', textAlign: 'center', padding: '12px 0' }}>No saved sessions</div>
           )}
@@ -328,11 +353,14 @@ export default function App() {
       )}
 
       {/* Chat */}
-      {!showSettings && (
+      <div style={{ display: (showSettings || showHistory) ? 'none' : 'contents' }}>
         <ChatPanel
+          sessionId={activeSession.id}
           messages={activeSession.messages}
           onAddMessage={addMessage}
           onPatchLastToolResult={patchLastToolResult}
+          onRemoveLastStreamingMessage={removeLastStreamingMessage}
+          onMarkLastMessageAsAskUser={markLastMessageAsAskUser}
           onAppendRawLog={appendRawLog}
           elementData={elementData}
           history={activeSession.history}
@@ -341,7 +369,7 @@ export default function App() {
           activeModelId={activeModelId}
           onActiveModelIdChange={handleActiveModelIdChange}
         />
-      )}
+      </div>
     </div>
   );
 }
