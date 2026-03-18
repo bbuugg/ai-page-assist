@@ -190,6 +190,7 @@ export default function App() {
     switchingRef.current = true;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'hideBorderFx' });
+    chrome.runtime.sendMessage({ action: 'resetTabGroup' });
     setActiveSession(newSession());
     msgIdRef.current = 0;
     setIsLoading(false);

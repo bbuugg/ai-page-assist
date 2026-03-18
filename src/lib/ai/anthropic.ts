@@ -28,7 +28,7 @@ export async function runAnthropicTurn(
     continueLoop = false;
 
     const enabledTools = TOOL_DEFINITIONS.filter((t) => !disabledTools.includes(t.name));
-    const mcpToolDefs: Anthropic.Messages.Tool[] = mcpTools.map((t) => ({
+    const mcpToolDefs: Anthropic.Messages.Tool[] = mcpTools.filter((t) => !disabledTools.includes(t.name)).map((t) => ({
       name: t.name,
       description: t.description,
       input_schema: t.inputSchema,
@@ -105,16 +105,8 @@ export async function runAnthropicTurn(
         const result = mcpTool
           ? await callMcpTool(mcpTool, tb.input as Record<string, unknown>)
           : await executeTool(tb.name as ToolName, tb.input as Record<string, unknown>);
-        callbacks.onToolResult(tb.name, result.content, result.isError ?? false, result.isImage);
-        if (result.isImage) {
-          toolResults.push({
-            type: 'tool_result',
-            tool_use_id: tb.id,
-            content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: result.content } }],
-          });
-        } else {
-          toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: result.content, is_error: result.isError });
-        }
+        callbacks.onToolResult(tb.name, result.content, result.isError ?? false);
+        toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: result.content, is_error: result.isError });
       }
       updatedHistory.push({ role: 'user', content: toolResults });
     }

@@ -3,7 +3,6 @@ import type { Tool } from '@anthropic-ai/sdk/resources/messages';
 export interface ToolResult {
   content: string;
   isError?: boolean;
-  isImage?: boolean;
 }
 
 export interface ToolMeta {

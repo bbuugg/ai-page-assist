@@ -7,6 +7,20 @@ function sendCommand(tabId: number, method: string, params = {}): Promise<unknow
   });
 }
 
+// Detect overlay panel close and clean up page effects
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== 'overlay-panel') return;
+  port.onDisconnect.addListener(() => {
+    const tabId = inspectedTabId ?? activePanelTabId;
+    if (tabId) {
+      chrome.tabs.sendMessage(tabId, { action: 'hideBorderFx' }).catch(() => {});
+      chrome.tabs.sendMessage(tabId, { action: 'removeHighlight' }).catch(() => {});
+    }
+    activePanelTabId = null;
+    inspectedTabId = null;
+  });
+});
+
 // Open side panel on action click
 chrome.action.onClicked.addListener((tab) => {
   // Block restricted system pages where side panel cannot function
@@ -29,6 +43,9 @@ chrome.runtime.onInstalled.addListener(() => {
 let activePanelTabId: number | null = null;
 // Track the content page tab (distinct from the extension panel tab)
 let inspectedTabId: number | null = null;
+// Tab groups per session id
+const sessionTabGroups = new Map<string, number>();
+let activeSessionId: string | null = null;
 
 chrome.tabs.onActivated.addListener(({ tabId }) => {
   // Only update inspectedTabId if it's a real content tab (not the extension panel)
@@ -43,12 +60,31 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 });
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Track active session id
+  if (request.action === 'setActiveSession') {
+    activeSessionId = request.sessionId as string;
+    sendResponse({});
+    return true;
+  }
+
+  // Reset tab group when a new session starts
+  if (request.action === 'resetTabGroup') {
+    if (activeSessionId) sessionTabGroups.delete(activeSessionId);
+    activeSessionId = null;
+    sendResponse({});
+    return true;
+  }
+
   // Side panel announces itself
   if (request.action === 'panelReady') {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      activePanelTabId = tabs[0]?.id ?? null;
-      inspectedTabId = activePanelTabId;
-      sendResponse({ tabId: activePanelTabId });
+      const tab = tabs[0];
+      activePanelTabId = tab?.id ?? null;
+      // Only set inspectedTabId if the active tab is a real content page
+      if (tab?.url && !tab.url.startsWith('chrome-extension://')) {
+        inspectedTabId = tab.id ?? null;
+      }
+      sendResponse({ tabId: inspectedTabId ?? activePanelTabId });
     });
     return true;
   }
@@ -176,6 +212,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             break;
           case 'open_tab': {
             const tab = await chrome.tabs.create({ url: input.url as string | undefined, active: true });
+            // Add to session tab group (create group if needed)
+            if (tab.id !== undefined) {
+              await new Promise((r) => setTimeout(r, 200));
+              try {
+                const sid = activeSessionId;
+                let groupId = sid ? sessionTabGroups.get(sid) ?? null : null;
+                if (groupId !== null) {
+                  // Verify group still exists
+                  try {
+                    await chrome.tabGroups.get(groupId);
+                  } catch {
+                    groupId = null;
+                    if (sid) sessionTabGroups.delete(sid);
+                  }
+                }
+                if (groupId === null) {
+                  groupId = await chrome.tabs.group({ tabIds: [tab.id] });
+                  await chrome.tabGroups.update(groupId, { title: 'AI', collapsed: false });
+                  if (sid) sessionTabGroups.set(sid, groupId);
+                } else {
+                  await chrome.tabs.group({ tabIds: [tab.id], groupId });
+                }
+              } catch {
+                // Tab grouping not supported or failed — ignore
+              }
+            }
             sendResponse({ result: `Opened tab ${tab.id}${input.url ? ` at ${input.url}` : ''}` });
             break;
           }
@@ -263,94 +325,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const result = results?.[0]?.result;
         if (!result) { sendResponse({ error: 'No element at position' }); return; }
         sendResponse({ html: result.html, css: result.css, backendNodeId: null });
-      }
-    );
-    return true;
-  }
-
-  if (request.action === 'screenshot') {
-    const tabId = request.tabId ?? activePanelTabId;
-    if (!tabId) { sendResponse({ error: 'No tab' }); return true; }
-    chrome.tabs.get(tabId, (tab) => {
-      chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }, (dataUrl) => {
-        if (chrome.runtime.lastError) sendResponse({ error: chrome.runtime.lastError.message });
-        else sendResponse({ dataUrl });
-      });
-    });
-    return true;
-  }
-
-  if (request.action === 'screenshotFullPage') {
-    const tabId = inspectedTabId ?? activePanelTabId;
-    if (!tabId) { sendResponse({ error: 'No tab' }); return true; }
-    // Get page dimensions and scroll in content script, capture each segment, stitch with OffscreenCanvas
-    chrome.scripting.executeScript(
-      { target: { tabId }, func: () => ({
-          scrollX: window.scrollX, scrollY: window.scrollY,
-          totalHeight: document.documentElement.scrollHeight,
-          totalWidth: document.documentElement.scrollWidth,
-          viewH: window.innerHeight, viewW: window.innerWidth,
-        }), world: 'MAIN' },
-      async (results) => {
-        if (chrome.runtime.lastError || !results?.[0]?.result) {
-          sendResponse({ error: 'Could not get page dimensions' }); return;
-        }
-        const { scrollX, scrollY, totalHeight, viewH, viewW } = results[0].result as
-          { scrollX: number; scrollY: number; totalHeight: number; totalWidth: number; viewH: number; viewW: number };
-        const segments: { y: number; dataUrl: string }[] = [];
-        let y = 0;
-        // Scroll and capture each segment
-        const captureSegment = (segY: number, cb: (dataUrl: string | null) => void) => {
-          chrome.scripting.executeScript(
-            { target: { tabId }, func: (sy: number) => window.scrollTo(0, sy), args: [segY], world: 'MAIN' },
-            () => setTimeout(() => {
-              chrome.tabs.get(tabId, (tab) => {
-                chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' }, (dataUrl) => {
-                  cb(chrome.runtime.lastError ? null : dataUrl);
-                });
-              });
-            }, 150)
-          );
-        };
-        const doNext = () => {
-          if (y >= totalHeight) {
-            // Restore original scroll
-            chrome.scripting.executeScript(
-              { target: { tabId }, func: (sx: number, sy: number) => window.scrollTo(sx, sy), args: [scrollX, scrollY], world: 'MAIN' },
-              () => {
-                // Stitch with OffscreenCanvas
-                (async () => {
-                  try {
-                    const canvas = new OffscreenCanvas(viewW, totalHeight);
-                    const ctx = canvas.getContext('2d')!;
-                    for (const seg of segments) {
-                      const res = await fetch(seg.dataUrl);
-                      const blob = await res.blob();
-                      const bitmap = await createImageBitmap(blob);
-                      const drawH = Math.min(viewH, totalHeight - seg.y);
-                      ctx.drawImage(bitmap, 0, 0, viewW, drawH, 0, seg.y, viewW, drawH);
-                      bitmap.close();
-                    }
-                    const outBlob = await canvas.convertToBlob({ type: 'image/png' });
-                    const reader = new FileReader();
-                    reader.onload = () => sendResponse({ dataUrl: reader.result as string });
-                    reader.readAsDataURL(outBlob);
-                  } catch (e) {
-                    sendResponse({ error: String(e) });
-                  }
-                })();
-              }
-            );
-            return;
-          }
-          captureSegment(y, (dataUrl) => {
-            if (!dataUrl) { sendResponse({ error: 'Capture failed' }); return; }
-            segments.push({ y, dataUrl });
-            y += viewH;
-            doNext();
-          });
-        };
-        doNext();
       }
     );
     return true;

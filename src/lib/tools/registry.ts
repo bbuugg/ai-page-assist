@@ -4,7 +4,6 @@ import { def as get_element_css } from './definitions/get_element_css';
 import { def as get_full_page_html } from './definitions/get_full_page_html';
 import { def as highlight_element } from './definitions/highlight_element';
 import { def as execute_js } from './definitions/execute_js';
-import { def as screenshot } from './definitions/screenshot';
 import { def as fill_input } from './definitions/fill_input';
 import { def as click_element } from './definitions/click_element';
 import { def as open_url } from './definitions/open_url';
@@ -42,7 +41,6 @@ export const ALL_TOOLS: ToolDef[] = [
   get_full_page_html,
   highlight_element,
   execute_js,
-  screenshot,
   fill_input,
   click_element,
   open_url,

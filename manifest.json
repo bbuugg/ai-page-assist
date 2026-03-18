@@ -8,7 +8,9 @@
     "scripting",
     "storage",
     "unlimitedStorage",
-    "sidePanel"
+    "sidePanel",
+    "tabGroups",
+    "tabs"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -1,3 +1,7 @@
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+
 export type McpTransportType = 'http' | 'streamable-http';
 
 export interface McpServerConfig {
@@ -5,64 +9,43 @@ export interface McpServerConfig {
   name: string;
   url: string;       // e.g. http://localhost:3000/mcp
   enabled: boolean;
-  type: McpTransportType; // 'http' = legacy JSON-RPC, 'streamable-http' = MCP Streamable HTTP
+  type: McpTransportType; // 'http' | 'streamable-http' — both use StreamableHTTP transport
 }
 
-export interface McpTool {
+export interface McpTool extends Tool {
+  name: string;          // prefixed: "mcp__serverName__toolName" (overrides Tool.name)
+  originalName: string;  // raw tool name from server (= Tool.name)
   serverId: string;
   serverName: string;
   serverUrl: string;
   serverType: McpTransportType;
-  name: string;          // prefixed: "mcp__serverName__toolName"
-  originalName: string;  // raw tool name from server
-  description: string;
-  inputSchema: { type: 'object'; properties: Record<string, unknown>; required?: string[] };
 }
 
-function mcpHeaders(server: McpServerConfig): Record<string, string> {
-  if (server.type === 'streamable-http') {
-    return { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream' };
-  }
-  return { 'Content-Type': 'application/json' };
-}
-
-async function mcpParseResponse(res: Response): Promise<unknown> {
-  const ct = res.headers.get('content-type') ?? '';
-  if (ct.includes('text/event-stream')) {
-    // SSE: read lines and find the first data: {...} line
-    const text = await res.text();
-    for (const line of text.split('\n')) {
-      if (line.startsWith('data:')) {
-        const data = line.slice(5).trim();
-        if (data && data !== '[DONE]') return JSON.parse(data);
-      }
-    }
-    return {};
-  }
-  return res.json();
+function createClient(server: McpServerConfig): { client: Client; transport: StreamableHTTPClientTransport } {
+  const transport = new StreamableHTTPClientTransport(new URL(server.url));
+  const client = new Client({ name: 'ai-page-assist', version: '1.0.0' });
+  return { client, transport };
 }
 
 // Fetch tool list from a single MCP server
 export async function fetchMcpTools(server: McpServerConfig): Promise<McpTool[]> {
-  const res = await fetch(server.url, {
-    method: 'POST',
-    headers: mcpHeaders(server),
-    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
-  });
-  if (!res.ok) throw new Error(`MCP server "${server.name}" responded ${res.status}`);
-  const json = await mcpParseResponse(res) as { result?: { tools?: unknown[] } };
-  const tools: { name: string; description?: string; inputSchema?: Record<string, unknown> }[] =
-    (json?.result?.tools ?? []) as never[];
-  return tools.map((t) => ({
-    serverId: server.id,
-    serverName: server.name,
-    serverUrl: server.url,
-    serverType: server.type,
-    name: `mcp__${server.name}__${t.name}`,
-    originalName: t.name,
-    description: `[MCP: ${server.name}] ${t.description ?? t.name}`,
-    inputSchema: (t.inputSchema ?? { type: 'object', properties: {} }) as McpTool['inputSchema'],
-  }));
+  const { client, transport } = createClient(server);
+  await client.connect(transport);
+  try {
+    const { tools } = await client.listTools();
+    return tools.map((t) => ({
+      serverId: server.id,
+      serverName: server.name,
+      serverUrl: server.url,
+      serverType: server.type,
+      name: `mcp__${server.name}__${t.name}`,
+      originalName: t.name,
+      description: `[MCP: ${server.name}] ${t.description ?? t.name}`,
+      inputSchema: t.inputSchema,
+    }));
+  } finally {
+    await client.close();
+  }
 }
 
 export interface McpToolResult {
@@ -75,34 +58,31 @@ export interface McpToolResult {
 export async function callMcpTool(
   tool: McpTool,
   args: Record<string, unknown>,
-  serverConfig?: McpServerConfig,
 ): Promise<McpToolResult> {
+  const server: McpServerConfig = {
+    id: tool.serverId,
+    name: tool.serverName,
+    url: tool.serverUrl,
+    enabled: true,
+    type: tool.serverType,
+  };
+  const { client, transport } = createClient(server);
+  await client.connect(transport);
   try {
-    const type = serverConfig?.type ?? tool.serverType;
-    const headers = mcpHeaders({ type } as McpServerConfig);
-    const res = await fetch(tool.serverUrl, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: Date.now(),
-        method: 'tools/call',
-        params: { name: tool.originalName, arguments: args },
-      }),
-    });
-    if (!res.ok) {
-      let body = '';
-      try { body = await res.text(); } catch { /* ignore */ }
-      throw new Error(`MCP server responded ${res.status}${body ? `\n${body}` : ''}`);
+    const result = await client.callTool({ name: tool.originalName, arguments: args }) as CallToolResult;
+    if (result.isError) {
+      const errText = Array.isArray(result.content)
+        ? result.content.map((c) => (c.type === 'text' ? c.text : JSON.stringify(c))).join('')
+        : JSON.stringify(result.content);
+      return { content: errText, isError: true };
     }
-    const json = await (type === 'streamable-http' ? mcpParseResponse(res) : res.json()) as { error?: { message?: string }; result?: { content?: unknown } };
-    if (json?.error) throw new Error(json.error.message ?? JSON.stringify(json.error));
-    const content = json?.result?.content;
-    const text = Array.isArray(content)
-      ? content.map((c: { type: string; text?: string }) => (c.type === 'text' ? c.text ?? '' : JSON.stringify(c))).join('')
-      : JSON.stringify(json?.result ?? json);
+    const text = Array.isArray(result.content)
+      ? result.content.map((c) => (c.type === 'text' ? c.text : JSON.stringify(c))).join('')
+      : JSON.stringify(result.content);
     return { content: text };
   } catch (e) {
     return { content: String(e), isError: true };
+  } finally {
+    await client.close();
   }
 }

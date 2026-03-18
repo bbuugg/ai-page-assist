@@ -18,32 +18,11 @@ function anthropicToOAI(history: MessageParam[]): OAIMessage[] {
       } else if (Array.isArray(m.content)) {
         for (const block of m.content) {
           if (block.type === 'tool_result') {
-            // Check if content contains an image block
-            const contentArr = Array.isArray(block.content) ? block.content : null;
-            const imageBlock = contentArr?.find((b: { type: string }) => b.type === 'image') as
-              | { type: 'image'; source: { type: string; media_type: string; data: string } }
-              | undefined;
-            if (imageBlock) {
-              // tool role cannot carry image content in OpenAI API — send empty tool result + image as user message
-              result.push({
-                role: 'tool',
-                tool_call_id: block.tool_use_id,
-                content: '[screenshot attached]',
-              });
-              result.push({
-                role: 'user',
-                content: [
-                  { type: 'text' as const, text: 'Screenshot result:' },
-                  { type: 'image_url' as const, image_url: { url: `data:${imageBlock.source.media_type};base64,${imageBlock.source.data}` } },
-                ],
-              });
-            } else {
-              result.push({
-                role: 'tool',
-                tool_call_id: block.tool_use_id,
-                content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-              });
-            }
+            result.push({
+              role: 'tool',
+              tool_call_id: block.tool_use_id,
+              content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+            });
           }
         }
       }
@@ -160,7 +139,7 @@ export async function runOpenAITurn(
 
     const oaiMessages = anthropicToOAI(updatedHistory);
     const enabledOAITools = OAI_TOOLS.filter((t) => t.type === 'function' && !disabledTools.includes(t.function.name));
-    const mcpOAITools: OpenAI.Chat.ChatCompletionTool[] = mcpTools.map((t) => ({
+    const mcpOAITools: OpenAI.Chat.ChatCompletionTool[] = mcpTools.filter((t) => !disabledTools.includes(t.name)).map((t) => ({
       type: 'function' as const,
       function: { name: t.name, description: t.description, parameters: t.inputSchema },
     }));

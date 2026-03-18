@@ -293,6 +293,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
     chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'showBorderFx' });
     streamBufRef.current = '';
     streamIdRef.current = null;
+    chrome.runtime.sendMessage({ action: 'setActiveSession', sessionId });
     const abort = new AbortController();
     abortRef.current = abort;
 
@@ -404,15 +405,8 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             setIsThinking(true);
             onAddMessage('system', `Using tool: ${toolName}…`, 'tool');
           },
-          onToolResult: (_name, result, isError, isImage) => {
-            if (isImage) {
-              onAddMessage('system', `data:image/png;base64,${result}`, 'image');
-              onPatchLastToolResult('[screenshot]');
-              // Image renders asynchronously — force scroll after layout
-              setTimeout(() => scrollToBottom(true), 100);
-            } else {
-              onPatchLastToolResult(result);
-            }
+          onToolResult: (_name, result, _isError) => {
+            onPatchLastToolResult(result);
           },
           onDone: () => {},
           onError: (err) => { throw err; },
@@ -504,14 +498,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   {roleLabel(m.role)}
                 </span>
               )}
-              {m.toolMeta === 'image' ? (
-                <img src={m.text} alt="screenshot" style={{
-                  maxWidth: '92%',
-                  borderRadius: 14,
-                  border: '1px solid var(--glass-border)',
-                  boxShadow: 'var(--glass-shadow-sm)',
-                }} />
-              ) : isSystem ? (
+              {isSystem ? (
                 <ToolMessage msg={m} />
               ) : isUser ? (
                 <div style={{
@@ -529,19 +516,20 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   {m.text}
                 </div>
               ) : (
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, maxWidth: "100%" }}>
                   <div className="glass ai-markdown" style={{
-                    maxWidth: '92%',
                     padding: '9px 13px',
                     borderRadius: '5px 18px 18px 18px',
                     fontSize: 12.5,
                     color: 'var(--text-assistant)',
                     lineHeight: 1.55,
                     wordBreak: 'break-word',
+                    overflow: 'hidden',
+                    width: 'fit-content'
                   }}>
                     <div
                     className="markdown-body"
-                    style={{ background: 'transparent', fontSize: 'inherit', color: 'inherit', wordBreak: 'break-word', overflowWrap: 'break-word' }}
+                    style={{ background: 'transparent', fontSize: 'inherit', color: 'inherit', wordBreak: 'break-word', overflowWrap: 'break-word', overflowX: 'auto' }}
                     dangerouslySetInnerHTML={{ __html: marked.parse(m.text) as string }}
                     onClick={(e) => {
                       const a = (e.target as HTMLElement).closest('a');

@@ -65,7 +65,20 @@ function getSimplifiedHTML(root: Element, maxLength = 20000): string {
     const el = node as Element;
     const tag = el.tagName.toLowerCase();
 
-    if (skipTags.has(tag)) return;
+    if (skipTags.has(tag)) {
+      // Emit a placeholder for skipped tags so AI knows they exist
+      const placeholderTags = new Set(['svg', 'canvas', 'iframe', 'template']);
+      if (placeholderTags.has(tag)) {
+        const indent = tab.repeat(depth);
+        const idAttr = (el as Element).id ? ` id="${(el as Element).id}"` : '';
+        const classAttr = (el as Element).className ? ` class="${(el as Element).className}"` : '';
+        const placeholder = `<${tag}${idAttr}${classAttr} />`;
+        if (formatted.length > 0 && !formatted.endsWith('\n')) formatted += '\n';
+        formatted += indent + placeholder;
+        totalChars += indent.length + placeholder.length;
+      }
+      return;
+    }
     if (!isElementVisible(el) && tag !== 'body') return;
 
     const indent = tab.repeat(depth);
@@ -685,15 +698,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             await showAICursor(input.selector as string);
             const el = document.querySelector(input.selector as string) as HTMLElement | null;
             if (!el) { sendResponse({ error: `Element not found: ${input.selector}` }); break; }
-            const rect = el.getBoundingClientRect();
-            const x = rect.left + rect.width / 2;
-            const y = rect.top + rect.height / 2;
-            const evOpts = { bubbles: true, cancelable: true, view: window, clientX: x, clientY: y };
-            el.dispatchEvent(new PointerEvent('pointerdown', { ...evOpts, pointerId: 1 }));
-            el.dispatchEvent(new MouseEvent('mousedown', evOpts));
-            el.dispatchEvent(new PointerEvent('pointerup', { ...evOpts, pointerId: 1 }));
-            el.dispatchEvent(new MouseEvent('mouseup', evOpts));
-            el.dispatchEvent(new MouseEvent('click', evOpts));
+            el.click();
             sendResponse({ result: 'ok' });
             break;
           }
@@ -931,8 +936,7 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
             const limit: number = typeof input.limit === 'number' ? input.limit : 5;
 
             function elementSummary(el: Element): object {
-              const html = el.outerHTML;
-              const truncatedHtml = html.length > 600 ? html.slice(0, 600) + '...' : html;
+              const truncatedHtml = getSimplifiedHTML(el, 600);
               const text = (el.textContent ?? '').trim().slice(0, 200);
               // Build a unique CSS path (up to 4 ancestors)
               const parts: string[] = [];
