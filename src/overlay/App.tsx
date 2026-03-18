@@ -356,6 +356,7 @@ export default function App() {
       {/* Chat */}
       <div style={{ display: (showSettings || showHistory) ? 'none' : 'contents' }}>
         <ChatPanel
+          key={activeSession.id}
           sessionId={activeSession.id}
           messages={activeSession.messages}
           onAddMessage={addMessage}

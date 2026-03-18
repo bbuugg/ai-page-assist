@@ -112,6 +112,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isAtBottomRef = useRef(true);
+  const genRef = useRef(0);
   // streamBuf, streamId, abortController, askUserResolver live in store
   const streamBufRef = {
     get current() { return useChatStore.getState().getSession(sessionId).streamBuf; },
@@ -268,7 +269,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
       return;
     }
 
-    // If AI is currently responding, abort it and preserve context
+    // If AI is currently responding, abort it and discard partial response
     if (abortRef.current) {
       abortRef.current.abort();
       // Remove the partial streaming message from UI
@@ -276,13 +277,8 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
         onRemoveLastStreamingMessage();
         streamIdRef.current = null;
       }
-      // Save partial assistant response into history if any
-      if (streamBufRef.current) {
-        const partial = streamBufRef.current;
-        const next = [...historyRef.current, { role: 'assistant' as const, content: partial }];
-        historyRef.current = next;
-        onHistoryChange(next);
-      }
+      // Discard partial assistant response — do NOT add to history
+      // so the new user message starts from the last complete state
       streamBufRef.current = '';
       abortRef.current = null;
     }
@@ -296,6 +292,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
     chrome.runtime.sendMessage({ action: 'setActiveSession', sessionId });
     const abort = new AbortController();
     abortRef.current = abort;
+    const myGen = ++genRef.current;
 
     const activeModel = models.find((m) => m.id === activeModelId) ?? models[0];
     if (!activeModel) {
@@ -438,9 +435,11 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
         onAddMessage('system', `Error: ${errMsg}${hint}`);
       }
     } finally {
-      setIsThinking(false);
-      abortRef.current = null;
-      chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'hideBorderFx' });
+      if (genRef.current === myGen) {
+        setIsThinking(false);
+        abortRef.current = null;
+        chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'hideBorderFx' });
+      }
     }
   }
 
@@ -891,7 +890,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             </div>
             {isThinking ? (
               <button
-                onClick={() => abortRef.current?.abort()}
+                onClick={() => { abortRef.current?.abort(); genRef.current++; setIsThinking(false); abortRef.current = null; chrome.runtime.sendMessage({ action: 'toContent', action_inner: 'hideBorderFx' }); }}
                 title="Stop"
                 style={{
                   width: 32, height: 32,
