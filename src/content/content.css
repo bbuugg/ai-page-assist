@@ -1,0 +1,17 @@
+@keyframes ai-highlight-wave {
+  0%   { box-shadow: 0 0 0 2px rgba(0,122,255,0.95), 0 0 0 5px rgba(100,60,255,0.55), 0 0 0 10px rgba(190,30,255,0.28), 0 0 0 18px rgba(255,45,85,0.12), 0 0 0 28px rgba(255,45,85,0.04); }
+  20%  { box-shadow: 0 0 0 2px rgba(48,209,88,0.95), 0 0 0 5px rgba(0,122,255,0.55), 0 0 0 10px rgba(100,60,255,0.28), 0 0 0 18px rgba(190,30,255,0.12), 0 0 0 28px rgba(190,30,255,0.04); }
+  40%  { box-shadow: 0 0 0 2px rgba(255,214,10,0.95), 0 0 0 5px rgba(48,209,88,0.55), 0 0 0 10px rgba(0,122,255,0.28), 0 0 0 18px rgba(100,60,255,0.12), 0 0 0 28px rgba(100,60,255,0.04); }
+  60%  { box-shadow: 0 0 0 2px rgba(255,45,85,0.95), 0 0 0 5px rgba(255,214,10,0.55), 0 0 0 10px rgba(48,209,88,0.28), 0 0 0 18px rgba(0,122,255,0.12), 0 0 0 28px rgba(0,122,255,0.04); }
+  80%  { box-shadow: 0 0 0 2px rgba(190,30,255,0.95), 0 0 0 5px rgba(255,45,85,0.55), 0 0 0 10px rgba(255,214,10,0.28), 0 0 0 18px rgba(48,209,88,0.12), 0 0 0 28px rgba(48,209,88,0.04); }
+  100% { box-shadow: 0 0 0 2px rgba(0,122,255,0.95), 0 0 0 5px rgba(100,60,255,0.55), 0 0 0 10px rgba(190,30,255,0.28), 0 0 0 18px rgba(255,45,85,0.12), 0 0 0 28px rgba(255,45,85,0.04); }
+}
+
+.ai-extension-highlight-element {
+  outline: none !important;
+  cursor: crosshair !important;
+  animation: ai-highlight-wave 2s linear infinite !important;
+  border-radius: 2px !important;
+  position: relative !important;
+  z-index: 2147483647 !important;
+}
