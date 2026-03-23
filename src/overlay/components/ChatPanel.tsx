@@ -751,8 +751,8 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                 <div className="relative max-w-[85%] px-3.5 py-2 rounded-[18px_5px_18px_18px] bg-primary text-primary-foreground text-[12.5px] leading-relaxed whitespace-pre-wrap break-words">
                   {desensitize(m.text)}
                   {/* Action buttons: overlay bottom-right of bubble */}
-                  <div className="absolute bottom-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm rounded-tl-lg px-1 py-0.5 shadow-sm">
-                    <Button variant="ghost" size="icon" className="h-5 w-5" title={copiedMsgId === m.id ? '已复制!' : '复制'}
+                  <div className="absolute bottom-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-primary-foreground/15 backdrop-blur-sm rounded-tl-lg px-1 py-0.5">
+                    <Button variant="ghost" size="icon" className="h-5 w-5 text-primary-foreground hover:bg-primary-foreground/20 hover:text-primary-foreground" title={copiedMsgId === m.id ? '已复制!' : '复制'}
                       onClick={() => { navigator.clipboard.writeText(m.text).then(() => { setCopiedMsgId(m.id); setTimeout(() => setCopiedMsgId(null), 1500); }); }}>
                       {copiedMsgId === m.id ? (
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -765,7 +765,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" title="删除">
+                        <Button variant="ghost" size="icon" className="h-5 w-5 text-primary-foreground/70 hover:bg-primary-foreground/20 hover:text-primary-foreground" title="删除">
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                             <polyline points="3 6 5 6 21 6"/>
                             <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -788,9 +788,9 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   </div>
                 </div>
               ) : (
-                <div className="relative flex flex-col gap-1.5 max-w-full">
+                <div className="flex flex-col gap-1.5 max-w-full">
                   {m.thinkingText && <ThinkingBlock text={m.thinkingText} />}
-                  <div className="ai-markdown px-3 py-2 rounded-[5px_18px_18px_18px] bg-muted text-[12.5px] leading-relaxed break-words overflow-hidden">
+                  <div className="relative ai-markdown px-3 py-2 rounded-[5px_18px_18px_18px] bg-muted text-[12.5px] leading-relaxed break-words overflow-hidden">
                     <div
                     className="markdown-body"
                     style={{ background: 'transparent', fontSize: 'inherit', color: 'inherit', wordBreak: 'break-word', overflowWrap: 'break-word', overflowX: 'hidden' }}
@@ -803,13 +803,6 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                       }
                     }}
                   />
-                  </div>
-                  {m.isAskUser && sess.askUserResolver !== null && (
-                    <div className="flex flex-row gap-1.5 justify-end" style={{ animation: 'ai-pop-in 0.22s cubic-bezier(0.34,1.56,0.64,1)' }}>
-                      <Button variant="outline" size="icon" className="h-6 w-6 rounded-full" onClick={() => { void handleSend('no'); }} title="取消">✕</Button>
-                      <Button size="icon" className="h-6 w-6 rounded-full" onClick={() => { void handleSend('yes'); }} title="确认">✓</Button>
-                    </div>
-                  )}
                   {/* Action buttons: overlay bottom-right of bubble */}
                   <div className="absolute bottom-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm rounded-tl-lg px-1 py-0.5 shadow-sm">
                     <Button variant="ghost" size="icon" className="h-5 w-5" title={copiedMsgId === m.id ? '已复制!' : '复制'}
@@ -846,6 +839,13 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                       </AlertDialogContent>
                     </AlertDialog>
                   </div>
+                  </div>
+                  {m.isAskUser && sess.askUserResolver !== null && (
+                    <div className="flex flex-row gap-1.5 justify-end" style={{ animation: 'ai-pop-in 0.22s cubic-bezier(0.34,1.56,0.64,1)' }}>
+                      <Button variant="outline" size="icon" className="h-6 w-6 rounded-full" onClick={() => { void handleSend('no'); }} title="取消">✕</Button>
+                      <Button size="icon" className="h-6 w-6 rounded-full" onClick={() => { void handleSend('yes'); }} title="确认">✓</Button>
+                    </div>
+                  )}
                 </div>
               )}
               {m.rawLogs && m.rawLogs.length > 0 && <div className="mt-0.5"><RawLogPanel logs={m.rawLogs} /></div>}
@@ -1093,7 +1093,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
               }
             }}
             onKeyDown={handleKeyDown}
-            placeholder="询问关于此页面的问题…"
+            placeholder="输入 @ 使用智能体，输入 / 使用命令"
             rows={1}
             style={{
               background: 'transparent',
