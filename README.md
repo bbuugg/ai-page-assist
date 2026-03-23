@@ -28,6 +28,18 @@ A Chrome extension (MV3) that embeds an AI assistant into the browser side panel
 - Their tools are exposed to the AI alongside the built-in tools
 - Individual tools can be disabled per-session
 
+### Skills Marketplace
+- 6 built-in skills: SEO Analyst, Code Reviewer, Form Automator, Data Extractor, Accessibility Checker, Shopping Assistant
+- Create custom skills with a name, system prompt, and preferred tools
+- Activate a skill by typing `@skillname` in the chat input — a picker appears for selection
+- Active skill shown as a chip in the input box; click ✕ to deactivate
+- Skills inject a system prompt supplement and tool hints into every AI turn
+- ⚡ button in the toolbar opens the Marketplace panel
+
+### AI Tabs
+- When the AI opens new browser tabs (via `open_tab`), they appear in a bar above the chat input
+- Close individual tabs with ✕ or use "Close all" to close them all at once
+
 ### Ask User (Clarification)
 - When the AI needs clarification before proceeding it calls `ask_user`
 - Execution pauses and the question appears as an AI message

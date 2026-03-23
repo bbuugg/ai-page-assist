@@ -94,8 +94,27 @@ The `manifest.json` requires `storage` permission for `chrome.storage.local` acc
 - Ollama requests are proxied through the background service worker (`streamViaBackground`) to avoid CORS issues from the extension origin.
 - If Ollama returns 403, the fix is to set the environment variable `OLLAMA_ORIGINS=*` and restart Ollama. This hint is shown automatically in the chat error message.
 
+### AI Tabs bar
+- `background.ts` tracks AI-opened tabs per session in `sessionAiTabs: Map<string, number[]>`.
+- After `open_tab` / `close_tab` / `onRemoved` / `resetTabGroup`, background pushes `{ type: 'AI_TABS_UPDATE', tabs: [{id, title, url}] }` via `chrome.runtime.sendMessage`.
+- `App.tsx` listens for `AI_TABS_UPDATE` and maintains `aiTabs` state; passes `onCloseAiTab` / `onCloseAllAiTabs` to ChatPanel.
+- Closing a tab calls `chrome.tabs.remove(tabId).catch(() => {})` directly from the overlay — no AI tool call needed.
+- `aiTabs` state is cleared on new/switched session.
+
+### Skills Marketplace
+- `src/lib/skills.ts` — `Skill` interface, `BUILTIN_SKILLS` (6 built-ins), `loadCustomSkills` / `saveCustomSkills` (chrome.storage key `customSkills`), `getAllSkills`, `buildSkillSystemPrompt`.
+- `activeSkillId: string | null` lives in per-session Zustand state (`store.ts`); `customSkills` in shared store state.
+- `setActiveSkillId(sessionId, skillId)` and `setCustomSkills(skills)` in the store.
+- `runConversationTurn` accepts optional 5th param `extraSystemPrompt?: string`; both `runAnthropicTurn` and `runOpenAITurn` append it to `SYSTEM_PROMPT`.
+- ChatPanel detects `@` in textarea input to show a mention picker popover (keyboard navigable); selecting a skill calls `selectMention(skill)` which strips the `@query` and sets `activeSkillId`.
+- Active skill shown as a chip above the textarea; ✕ button clears `activeSkillId`.
+- Each `handleSend` computes `extraSystemPrompt` from `buildSkillSystemPrompt(activeSkill)` if active.
+- `SkillsPanel.tsx` — full overlay panel for browsing/activating/deleting skills and creating custom ones.
+- ⚡ Skills button in the ChatPanel bottom toolbar toggles the panel.
+
 ### Key conventions
 - All `chrome.storage` access goes through `src/lib/storage.ts`.
 - Do not add error handling for scenarios that cannot happen; trust framework guarantees.
 - Keep solutions minimal — no premature abstractions, no extra configurability unless asked.
 - MCP servers are loaded/saved via `loadMcpServers` / `saveMcpServers` in `storage.ts`; disabled tools via `loadDisabledTools` / `saveDisabledTools`.
+- Custom skills loaded/saved via `loadCustomSkills` / `saveCustomSkills` in `skills.ts`.

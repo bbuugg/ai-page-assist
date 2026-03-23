@@ -99,7 +99,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   for (const [sessionId, ids] of sessionAiTabs) {
     if (ids.includes(tabId)) {
       sessionAiTabs.set(sessionId, ids.filter((id) => id !== tabId));
-      if (sessionId === activeSessionId) pushAiTabsUpdate(sessionId);
+      pushAiTabsUpdate(sessionId);
       break;
     }
   }
@@ -215,12 +215,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Proxy fetch requests (bypasses CORS)
   if (request.action === 'fetchUrl') {
-    const { url } = request;
+    const { url, headers, method, body } = request;
     if (!url || !url.startsWith('http')) {
       sendResponse({ error: `Invalid URL: ${url}` });
       return true;
     }
-    fetch(url, { credentials: 'omit' })
+    fetch(url, { method: method ?? 'GET', credentials: 'omit', headers: headers ?? {}, body: body ?? undefined })
       .then(async (resp) => {
         const text = await resp.text();
         sendResponse({ text, status: resp.status, statusText: resp.statusText });
@@ -288,6 +288,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sendResponse({ result: 'ok' });
             break;
           case 'open_tab': {
+            // Hide scan effect on the current page before switching to new tab
+            if (inspectedTabId) {
+              chrome.tabs.sendMessage(inspectedTabId, { action: 'hideBorderFx' }).catch(() => {});
+            }
             const tab = await chrome.tabs.create({ url: input.url as string | undefined, active: true });
             // Add to session tab group (create group if needed)
             if (tab.id !== undefined) {
@@ -323,6 +327,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 pushAiTabsUpdate(activeSessionId);
               }
               await waitForTabComplete(tab.id);
+              // Push update again after load so tab title is populated
+              if (activeSessionId) pushAiTabsUpdate(activeSessionId);
             }
             sendResponse({ result: `Opened tab ${tab.id}${input.url ? ` at ${input.url}` : ''}` });
             break;

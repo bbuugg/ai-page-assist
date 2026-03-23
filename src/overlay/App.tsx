@@ -5,8 +5,8 @@ import { Toaster } from 'sonner';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import ChatPanel from './components/ChatPanel';
 import SettingsPanel from './components/SettingsPanel';
-import { loadSessions, saveSession, deleteSession, newSession, loadModels, saveModels } from '../lib/storage';
-import type { Session, ModelConfig } from '../lib/storage';
+import { loadSessions, saveSession, deleteSession, newSession, loadProviders, saveProviders } from '../lib/storage';
+import type { Session, ProviderConfig } from '../lib/storage';
 import { useChatStore } from './store';
 
 export interface ElementData {
@@ -24,6 +24,8 @@ export interface ChatMessage {
   toolIsError?: boolean;
   rawLogs?: { request: string; response: string }[];
   isAskUser?: boolean;
+  thinkingText?: string;
+  toolCall?: { name: string; input: Record<string, unknown> };
 }
 
 function formatDate(ts: number) {
@@ -42,9 +44,11 @@ export default function App() {
   const [aiTabs, setAiTabs] = useState<{ id: number; title: string; url: string }[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<Session>(newSession());
-  const [models, setModels] = useState<ModelConfig[]>([]);
-  const [activeModelId, setActiveModelId] = useState<string>('');
+  const [providers, setProviders] = useState<ProviderConfig[]>([]);
+  const [activeModelUid, setActiveModelUid] = useState<string>('');
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const msgIdRef = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchingRef = useRef(false);
@@ -101,9 +105,9 @@ export default function App() {
 
   useEffect(() => {
     useChatStore.getState().loadSharedSettings();
-    Promise.all([loadSessions(), loadModels()]).then(([loaded, { models: ms, activeModelId: aid }]) => {
-      setModels(ms);
-      setActiveModelId(aid);
+    Promise.all([loadSessions(), loadProviders()]).then(([loaded, { providers: ps, activeModelUid: uid }]) => {
+      setProviders(ps);
+      setActiveModelUid(uid);
       if (loaded.length > 0) {
         setSessions(loaded);
         setActiveSession(loaded[0]);
@@ -118,6 +122,7 @@ export default function App() {
     if (!loadedRef.current || switchingRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
+      if (switchingRef.current) return;
       setSessions((prev) => upsertSessionList(prev, activeSession));
       void saveSession(activeSession);
     }, 600);
@@ -172,12 +177,42 @@ export default function App() {
     });
   }
 
+  function patchLastAssistantThinking(thinkingText: string) {
+    setActiveSession((prev) => {
+      const messages = [...prev.messages];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') {
+          messages[i] = { ...messages[i], thinkingText };
+          break;
+        }
+      }
+      return { ...prev, messages };
+    });
+  }
+
   function patchLastToolResult(result: string, isError?: boolean) {
     setActiveSession((prev) => {
       const messages = [...prev.messages];
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].toolMeta === 'tool') {
           messages[i] = { ...messages[i], toolResult: result, toolIsError: isError };
+          break;
+        }
+      }
+      return { ...prev, messages };
+    });
+  }
+
+  function deleteMessage(id: number) {
+    setActiveSession((prev) => ({ ...prev, messages: prev.messages.filter((m) => m.id !== id) }));
+  }
+
+  function recordToolCall(name: string, input: Record<string, unknown>) {
+    setActiveSession((prev) => {
+      const messages = [...prev.messages];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].toolMeta === 'tool') {
+          messages[i] = { ...messages[i], toolCall: { name, input } };
           break;
         }
       }
@@ -284,31 +319,40 @@ export default function App() {
     }
   }
 
+  function handleRenameSession(id: string, newTitle: string) {
+    const trimmed = newTitle.trim();
+    if (!trimmed) { setRenamingSessionId(null); return; }
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, title: trimmed } : s));
+    if (activeSession.id === id) setActiveSession((prev) => ({ ...prev, title: trimmed }));
+    const target = sessions.find((s) => s.id === id);
+    if (target) void saveSession({ ...target, title: trimmed });
+    setRenamingSessionId(null);
+  }
+
   function handleHistoryChange(history: MessageParam[]) {
     setActiveSession((prev) => ({ ...prev, history }));
   }
 
-  function handleActiveModelIdChange(id: string) {
-    setActiveModelId(id);
-    loadModels().then(({ models: ms }) => {
-      saveModels(ms, id);
-    });
+  function handleActiveModelUidChange(uid: string) {
+    setActiveModelUid(uid);
+    saveProviders(providers, uid);
   }
 
-  function handleModelsChange() {
-    loadModels().then(({ models: ms, activeModelId: aid }) => {
-      setModels(ms);
-      const valid = ms.find((m) => m.id === aid) ? aid : ms[0]?.id ?? '';
-      setActiveModelId(valid);
-    });
+  function handleProvidersChange(ps: ProviderConfig[], newActiveUid?: string) {
+    setProviders(ps);
+    const uid = newActiveUid ?? activeModelUid;
+    setActiveModelUid(uid);
+    saveProviders(ps, uid);
   }
 
   function handleCloseAiTab(tabId: number) {
     chrome.tabs.remove(tabId).catch(() => {});
+    setAiTabs((prev) => prev.filter((t) => t.id !== tabId));
   }
 
   function handleCloseAllAiTabs() {
     aiTabs.forEach((t) => chrome.tabs.remove(t.id).catch(() => {}));
+    setAiTabs([]);
   }
 
   return (
@@ -328,7 +372,7 @@ export default function App() {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
             </svg>
           )}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNewSession} title="新建对话">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNewSession} title="新建对话" disabled={activeSession.messages.length === 0}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: 'none' }}>
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
@@ -369,10 +413,28 @@ export default function App() {
                   : 'bg-muted/50 border-border hover:bg-muted'
               )}
             >
-              <div className="min-w-0 flex-1">
-                <div className={cn('text-xs font-medium truncate', s.id === activeSession.id ? 'text-primary' : 'text-foreground')}>
-                  {s.title}
-                </div>
+              <div className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}>
+                {renamingSessionId === s.id ? (
+                  <input
+                    autoFocus
+                    className="text-xs font-medium w-full bg-transparent border-b border-primary outline-none text-foreground"
+                    value={renameValue}
+                    onChange={(e) => setRenameValue(e.target.value)}
+                    onBlur={() => handleRenameSession(s.id, renameValue)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameSession(s.id, renameValue);
+                      if (e.key === 'Escape') setRenamingSessionId(null);
+                    }}
+                  />
+                ) : (
+                  <div
+                    className={cn('text-xs font-medium truncate', s.id === activeSession.id ? 'text-primary' : 'text-foreground')}
+                    onDoubleClick={(e) => { e.stopPropagation(); setRenamingSessionId(s.id); setRenameValue(s.title); }}
+                    title="双击重命名"
+                  >
+                    {s.title}
+                  </div>
+                )}
                 <div className="text-[10.5px] text-muted-foreground mt-0.5">
                   {formatDate(s.createdAt)} · {s.messages.filter(m => m.role !== 'system').length} msgs
                 </div>
@@ -404,7 +466,7 @@ export default function App() {
       {/* Settings panel */}
       {showSettings && (
         <div ref={settingsPanelRef} className="flex flex-col flex-1 h-0 overflow-hidden">
-          <SettingsPanel onClose={() => setShowSettings(false)} onModelsChange={handleModelsChange} onModalOpenChange={(open) => { settingsModalOpenRef.current = open; }} />
+          <SettingsPanel onClose={() => setShowSettings(false)} providers={providers} activeModelUid={activeModelUid} onProvidersChange={handleProvidersChange} onModelsChange={() => {}} onModalOpenChange={(open) => { settingsModalOpenRef.current = open; }} />
         </div>
       )}
 
@@ -419,15 +481,19 @@ export default function App() {
           messages={activeSession.messages}
           onAddMessage={addMessage}
           onPatchLastToolResult={patchLastToolResult}
+          onPatchLastAssistantThinking={patchLastAssistantThinking}
           onRemoveLastStreamingMessage={removeLastStreamingMessage}
           onMarkLastMessageAsAskUser={markLastMessageAsAskUser}
           onAppendRawLog={appendRawLog}
+          onRecordToolCall={recordToolCall}
+          onDeleteMessage={deleteMessage}
+          sessions={sessions}
           elementData={elementData}
           history={activeSession.history}
           onHistoryChange={handleHistoryChange}
-          models={models}
-          activeModelId={activeModelId}
-          onActiveModelIdChange={handleActiveModelIdChange}
+          providers={providers}
+          activeModelUid={activeModelUid}
+          onActiveModelUidChange={handleActiveModelUidChange}
         />
       </div>
       <Toaster position="bottom-center" richColors />

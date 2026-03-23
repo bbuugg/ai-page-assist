@@ -376,17 +376,22 @@ export async function handleToolMessage(
         return;
       }
       case 'get_page_context': {
-        const skip = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'HEAD']);
-        const parts: string[] = [];
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-        let node: Node | null;
-        while ((node = walker.nextNode()) && parts.join(' ').length < 3000) {
-          const p = (node as Text).parentElement;
-          if (!p || skip.has(p.tagName)) continue;
-          const t = (node.textContent ?? '').trim();
-          if (t.length > 1) parts.push(t);
-        }
-        sendResponse({ result: `URL: ${location.href}\nTitle: ${document.title}\n\nPage text summary:\n${parts.join(' ').slice(0, 3000)}` });
+        // Mark hidden elements on live DOM before cloning (computed style not available after clone)
+        const hiddenEls = Array.from(document.body.querySelectorAll('*')).filter((el) => {
+          const s = window.getComputedStyle(el);
+          return s.display === 'none' || s.visibility === 'hidden';
+        });
+        hiddenEls.forEach((el) => el.setAttribute('data-_hidden_', '1'));
+        const clone = document.body.cloneNode(true) as HTMLElement;
+        hiddenEls.forEach((el) => el.removeAttribute('data-_hidden_'));
+        // Remove non-content elements from clone
+        clone.querySelectorAll('script, style, noscript, svg, canvas, iframe, [data-_hidden_]')
+          .forEach((el) => el.remove());
+        const text = (clone.innerText ?? clone.textContent ?? '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 3000);
+        sendResponse({ result: `URL: ${location.href}\nTitle: ${document.title}\n\nPage text summary:\n${text}` });
         return;
       }
       case 'execute_js':
@@ -469,9 +474,9 @@ export async function handleToolMessage(
           let cur: Element | null = el;
           while (cur && cur !== document.documentElement) {
             const tag = cur.tagName.toLowerCase();
-            const parent = cur.parentElement;
+            const parent: Element | null = cur.parentElement;
             if (parent) {
-              const siblings = Array.from(parent.children).filter((c) => c.tagName === cur!.tagName);
+              const siblings = Array.from(parent.children).filter((c: Element) => c.tagName === cur!.tagName);
               parts.unshift(siblings.length > 1 ? `${tag}:nth-of-type(${siblings.indexOf(cur) + 1})` : tag);
             } else {
               parts.unshift(tag);
