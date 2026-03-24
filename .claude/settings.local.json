@@ -25,7 +25,14 @@
       "Bash(git add -A && git commit -m \"feat: ask_user tool carries is_yes_no flag, AI decides when to show yes/no buttons\")",
       "Bash(git add -A && git commit -m \"fix: yes/no buttons compact, right-aligned next to bubble, with pop-in animation\")",
       "Bash(grep -l 'xpath\\\\|selector' /Users/chengyao/Workspace/chrome/ai-page-inspector/src/lib/tools/definitions/*.ts)",
-      "Bash(grep -n 'xpath\\\\|XPath\\\\|CSS selector\\\\|css selector' /Users/chengyao/Workspace/chrome/ai-page-inspector/src/lib/tools/definitions/*.ts)"
+      "Bash(grep -n 'xpath\\\\|XPath\\\\|CSS selector\\\\|css selector' /Users/chengyao/Workspace/chrome/ai-page-inspector/src/lib/tools/definitions/*.ts)",
+      "Bash(npm run build 2>&1; echo \"EXIT_CODE=$?\")",
+      "Bash(git add src/lib/ai/openai.ts && git commit --amend --no-edit)",
+      "Bash(npx shadcn@latest add alert-dialog --yes 2>&1 | tail -10)",
+      "Bash(git check-ignore -q .worktrees 2>/dev/null && echo 'ignored' || echo 'not-ignored')",
+      "Bash(git add .gitignore && git commit -m \"chore: ignore .worktrees directory\")",
+      "Bash(git worktree add .worktrees/export-replay -b feature/export-replay)",
+      "Bash(ls D:/Workspace/chrome/ai-page-assist/README* 2>/dev/null || echo 'not found')"
     ]
   }
 }

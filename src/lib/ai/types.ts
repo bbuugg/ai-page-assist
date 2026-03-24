@@ -10,4 +10,6 @@ export interface StreamCallbacks {
   onRawLog?: (request: string, response: string) => void;
   /** Called when AI uses ask_user tool. Resolve the promise with the user's answer to continue. */
   onAskUser?: (question: string, isYesNo: boolean) => Promise<string>;
+  /** Called when a thinking block is received (Anthropic extended thinking). */
+  onThinking?: (text: string) => void;
 }

@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { Toaster } from 'sonner';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import ChatPanel from './components/ChatPanel';
 import SettingsPanel from './components/SettingsPanel';
-import { loadSessions, saveSession, deleteSession, newSession, loadModels, saveModels } from '../lib/storage';
-import type { Session, ModelConfig } from '../lib/storage';
+import { loadSessions, saveSession, deleteSession, newSession, loadProviders, saveProviders } from '../lib/storage';
+import type { Session, ProviderConfig } from '../lib/storage';
 import { useChatStore } from './store';
 
 export interface ElementData {
@@ -24,6 +26,8 @@ export interface ChatMessage {
   toolIsError?: boolean;
   rawLogs?: { request: string; response: string }[];
   isAskUser?: boolean;
+  thinkingText?: string;
+  toolCall?: { name: string; input: Record<string, unknown> };
 }
 
 function formatDate(ts: number) {
@@ -42,9 +46,11 @@ export default function App() {
   const [aiTabs, setAiTabs] = useState<{ id: number; title: string; url: string }[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSession, setActiveSession] = useState<Session>(newSession());
-  const [models, setModels] = useState<ModelConfig[]>([]);
-  const [activeModelId, setActiveModelId] = useState<string>('');
+  const [providers, setProviders] = useState<ProviderConfig[]>([]);
+  const [activeModelUid, setActiveModelUid] = useState<string>('');
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [renameDialogId, setRenameDialogId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
   const msgIdRef = useRef(0);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchingRef = useRef(false);
@@ -101,9 +107,9 @@ export default function App() {
 
   useEffect(() => {
     useChatStore.getState().loadSharedSettings();
-    Promise.all([loadSessions(), loadModels()]).then(([loaded, { models: ms, activeModelId: aid }]) => {
-      setModels(ms);
-      setActiveModelId(aid);
+    Promise.all([loadSessions(), loadProviders()]).then(([loaded, { providers: ps, activeModelUid: uid }]) => {
+      setProviders(ps);
+      setActiveModelUid(uid);
       if (loaded.length > 0) {
         setSessions(loaded);
         setActiveSession(loaded[0]);
@@ -118,6 +124,7 @@ export default function App() {
     if (!loadedRef.current || switchingRef.current) return;
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
+      if (switchingRef.current) return;
       setSessions((prev) => upsertSessionList(prev, activeSession));
       void saveSession(activeSession);
     }, 600);
@@ -172,12 +179,42 @@ export default function App() {
     });
   }
 
+  function patchLastAssistantThinking(thinkingText: string) {
+    setActiveSession((prev) => {
+      const messages = [...prev.messages];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].role === 'assistant') {
+          messages[i] = { ...messages[i], thinkingText };
+          break;
+        }
+      }
+      return { ...prev, messages };
+    });
+  }
+
   function patchLastToolResult(result: string, isError?: boolean) {
     setActiveSession((prev) => {
       const messages = [...prev.messages];
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].toolMeta === 'tool') {
           messages[i] = { ...messages[i], toolResult: result, toolIsError: isError };
+          break;
+        }
+      }
+      return { ...prev, messages };
+    });
+  }
+
+  function deleteMessage(id: number) {
+    setActiveSession((prev) => ({ ...prev, messages: prev.messages.filter((m) => m.id !== id) }));
+  }
+
+  function recordToolCall(name: string, input: Record<string, unknown>) {
+    setActiveSession((prev) => {
+      const messages = [...prev.messages];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].toolMeta === 'tool') {
+          messages[i] = { ...messages[i], toolCall: { name, input } };
           break;
         }
       }
@@ -284,31 +321,40 @@ export default function App() {
     }
   }
 
+  function handleRenameSession(id: string, newTitle: string) {
+    const trimmed = newTitle.trim();
+    if (!trimmed) { setRenameDialogId(null); return; }
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, title: trimmed } : s));
+    if (activeSession.id === id) setActiveSession((prev) => ({ ...prev, title: trimmed }));
+    const target = sessions.find((s) => s.id === id);
+    if (target) void saveSession({ ...target, title: trimmed });
+    setRenameDialogId(null);
+  }
+
   function handleHistoryChange(history: MessageParam[]) {
     setActiveSession((prev) => ({ ...prev, history }));
   }
 
-  function handleActiveModelIdChange(id: string) {
-    setActiveModelId(id);
-    loadModels().then(({ models: ms }) => {
-      saveModels(ms, id);
-    });
+  function handleActiveModelUidChange(uid: string) {
+    setActiveModelUid(uid);
+    saveProviders(providers, uid);
   }
 
-  function handleModelsChange() {
-    loadModels().then(({ models: ms, activeModelId: aid }) => {
-      setModels(ms);
-      const valid = ms.find((m) => m.id === aid) ? aid : ms[0]?.id ?? '';
-      setActiveModelId(valid);
-    });
+  function handleProvidersChange(ps: ProviderConfig[], newActiveUid?: string) {
+    setProviders(ps);
+    const uid = newActiveUid ?? activeModelUid;
+    setActiveModelUid(uid);
+    saveProviders(ps, uid);
   }
 
   function handleCloseAiTab(tabId: number) {
     chrome.tabs.remove(tabId).catch(() => {});
+    setAiTabs((prev) => prev.filter((t) => t.id !== tabId));
   }
 
   function handleCloseAllAiTabs() {
     aiTabs.forEach((t) => chrome.tabs.remove(t.id).catch(() => {}));
+    setAiTabs([]);
   }
 
   return (
@@ -328,7 +374,7 @@ export default function App() {
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
             </svg>
           )}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNewSession} title="新建对话">
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNewSession} title="新建对话" disabled={activeSession.messages.length === 0}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ pointerEvents: 'none' }}>
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
@@ -380,9 +426,21 @@ export default function App() {
               <Button
                 variant="ghost"
                 size="icon"
+                className="h-5 w-5 shrink-0 opacity-60 hover:opacity-100"
+                onClick={(e) => { e.stopPropagation(); setRenameDialogId(s.id); setRenameValue(s.title); }}
+                title="重命名"
+              >
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
                 className={cn('h-5 w-5 shrink-0', deletingSessionId === s.id ? 'opacity-100' : 'opacity-60')}
                 onClick={(e) => handleDeleteSession(s.id, e)}
-                title={deletingSessionId === s.id ? 'Deleting' : 'Delete'}
+                title={deletingSessionId === s.id ? '删除中' : '删除'}
                 disabled={deletingSessionId !== null}
               >
                 {deletingSessionId === s.id ? (
@@ -401,10 +459,34 @@ export default function App() {
         </div>
       )}
 
+      {/* Rename session dialog */}
+      <Dialog open={renameDialogId !== null} onOpenChange={(open) => { if (!open) setRenameDialogId(null); }}>
+        <DialogContent showCloseButton={false} aria-describedby={undefined}>
+          <DialogHeader>
+            <DialogTitle>重命名对话</DialogTitle>
+          </DialogHeader>
+          <Input
+            autoFocus
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRenameSession(renameDialogId!, renameValue);
+              if (e.key === 'Escape') setRenameDialogId(null);
+            }}
+            placeholder="对话名称"
+            className="text-xs"
+          />
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setRenameDialogId(null)}>取消</Button>
+            <Button size="sm" onClick={() => handleRenameSession(renameDialogId!, renameValue)}>确认</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Settings panel */}
       {showSettings && (
         <div ref={settingsPanelRef} className="flex flex-col flex-1 h-0 overflow-hidden">
-          <SettingsPanel onClose={() => setShowSettings(false)} onModelsChange={handleModelsChange} onModalOpenChange={(open) => { settingsModalOpenRef.current = open; }} />
+          <SettingsPanel onClose={() => setShowSettings(false)} providers={providers} activeModelUid={activeModelUid} onProvidersChange={handleProvidersChange} onModelsChange={() => {}} onModalOpenChange={(open) => { settingsModalOpenRef.current = open; }} />
         </div>
       )}
 
@@ -419,15 +501,19 @@ export default function App() {
           messages={activeSession.messages}
           onAddMessage={addMessage}
           onPatchLastToolResult={patchLastToolResult}
+          onPatchLastAssistantThinking={patchLastAssistantThinking}
           onRemoveLastStreamingMessage={removeLastStreamingMessage}
           onMarkLastMessageAsAskUser={markLastMessageAsAskUser}
           onAppendRawLog={appendRawLog}
+          onRecordToolCall={recordToolCall}
+          onDeleteMessage={deleteMessage}
+          sessions={sessions}
           elementData={elementData}
           history={activeSession.history}
           onHistoryChange={handleHistoryChange}
-          models={models}
-          activeModelId={activeModelId}
-          onActiveModelIdChange={handleActiveModelIdChange}
+          providers={providers}
+          activeModelUid={activeModelUid}
+          onActiveModelUidChange={handleActiveModelUidChange}
         />
       </div>
       <Toaster position="bottom-center" richColors />

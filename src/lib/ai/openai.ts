@@ -1,17 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
-import type { Settings } from '../storage';
+import type { ResolvedModel } from '../storage';
 import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools/index';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { StreamCallbacks } from './types';
 import { SYSTEM_PROMPT } from './prompt';
 import { callMcpTool, type McpTool } from '../mcp';
+import type { Desensitizer } from '../desensitize';
 
 type OAIMessage = OpenAI.Chat.ChatCompletionMessageParam;
-const CONTEXT_SWITCHING_TOOLS = new Set(['open_url', 'open_tab', 'switch_tab', 'go_back', 'go_forward', 'refresh']);
+const CONTEXT_SWITCHING_TOOLS = new Set(['open_url', 'switch_tab', 'go_back', 'go_forward', 'refresh']);
 
-function anthropicToOAI(history: MessageParam[]): OAIMessage[] {
-  const result: OAIMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+function anthropicToOAI(history: MessageParam[], extraSystemPrompt = ''): OAIMessage[] {
+  const result: OAIMessage[] = [{ role: 'system', content: SYSTEM_PROMPT + extraSystemPrompt }];
   for (const m of history) {
     if (m.role === 'user') {
       if (typeof m.content === 'string') {
@@ -118,16 +119,18 @@ function streamViaBackground(
 
 export async function runOpenAITurn(
   history: MessageParam[],
-  settings: Settings,
+  model: ResolvedModel,
   callbacks: StreamCallbacks,
   signal?: AbortSignal,
   disabledTools: string[] = [],
   mcpTools: McpTool[] = [],
+  extraSystemPrompt = '',
+  desensitizer?: Desensitizer,
 ): Promise<MessageParam[]> {
-  const isOllama = settings.provider === 'ollama';
+  const isOllama = model.type === 'ollama';
   const client = isOllama ? null : new OpenAI({
-    apiKey: settings.apiKey || 'openai',
-    baseURL: settings.baseURL,
+    apiKey: model.apiKey || 'openai',
+    baseURL: model.baseURL,
     dangerouslyAllowBrowser: true,
   });
 
@@ -138,7 +141,23 @@ export async function runOpenAITurn(
     if (signal?.aborted) return updatedHistory;
     continueLoop = false;
 
-    const oaiMessages = anthropicToOAI(updatedHistory);
+    const historyToEncode: MessageParam[] = desensitizer
+      ? updatedHistory.map((m) => {
+          if (typeof m.content === 'string') return { ...m, content: desensitizer.encode(m.content) };
+          if (Array.isArray(m.content)) {
+            return {
+              ...m,
+              content: m.content.map((b) => {
+                if (b.type === 'text') return { ...b, text: desensitizer.encode(b.text) };
+                if (b.type === 'tool_result' && typeof b.content === 'string') return { ...b, content: desensitizer.encode(b.content) };
+                return b;
+              }),
+            };
+          }
+          return m;
+        })
+      : updatedHistory;
+    const oaiMessages = anthropicToOAI(historyToEncode, extraSystemPrompt);
     const enabledOAITools = OAI_TOOLS.filter((t) => t.type === 'function' && !disabledTools.includes(t.function.name));
     const mcpOAITools: OpenAI.Chat.ChatCompletionTool[] = mcpTools.filter((t) => !disabledTools.includes(t.name)).map((t) => ({
       type: 'function' as const,
@@ -146,7 +165,7 @@ export async function runOpenAITurn(
     }));
     const allOAITools = [...enabledOAITools, ...mcpOAITools];
     const requestBody = {
-      model: settings.model,
+      model: model.modelId,
       max_tokens: 4096,
       ...(allOAITools.length > 0 ? { tools: allOAITools, tool_choice: 'auto' as const } : {}),
       messages: oaiMessages,
@@ -154,7 +173,7 @@ export async function runOpenAITurn(
     };
 
     const stream: AsyncIterable<OpenAI.Chat.ChatCompletionChunk> = isOllama
-      ? streamViaBackground(`${settings.baseURL}/chat/completions`, requestBody, signal)
+      ? streamViaBackground(`${model.baseURL}/chat/completions`, requestBody, signal)
       : await client!.chat.completions.create(requestBody, { signal });
 
     let assistantText = '';
@@ -167,8 +186,9 @@ export async function runOpenAITurn(
       const delta = chunk.choices[0]?.delta;
       if (!delta) continue;
       if (delta.content) {
-        assistantText += delta.content;
-        callbacks.onToken(delta.content);
+        const decodedContent = desensitizer ? desensitizer.decode(delta.content) : delta.content;
+        assistantText += decodedContent;
+        callbacks.onToken(decodedContent);
       }
       if (delta.tool_calls) {
         for (const tc of delta.tool_calls) {

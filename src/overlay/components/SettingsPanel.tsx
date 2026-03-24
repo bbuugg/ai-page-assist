@@ -3,53 +3,79 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { loadModels, saveModels, type ModelConfig, type Provider, PROVIDER_DEFAULTS, type McpServerConfig } from '../../lib/storage';
+import { type ProviderConfig, type ModelEntry, type ProviderType, PROVIDER_TYPE_DEFAULTS, type McpServerConfig } from '../../lib/storage';
 import { useChatStore } from '../store';
 import type { McpTransportType } from '../../lib/mcp';
-import { TOOL_META } from '../../lib/tools/index';
+import AgentsPanel from './AgentsPanel';
 import { fetchMcpTools, type McpTool } from '../../lib/mcp';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Check, Cpu, Plus, Trash2 } from 'lucide-react';
+import { Check, Plus, Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 
 interface Props {
   onClose: () => void;
   onModelsChange: () => void;
   onModalOpenChange?: (open: boolean) => void;
+  providers: ProviderConfig[];
+  activeModelUid: string;
+  onProvidersChange: (providers: ProviderConfig[], activeModelUid?: string) => void;
 }
 
-
-const PROVIDERS: { value: Provider; label: string }[] = [
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openai',    label: 'OpenAI' },
-  { value: 'ollama',    label: 'Ollama (local)' },
-];
-
-function newModel(): ModelConfig {
-  return {
-    id: Date.now().toString(),
-    name: 'New Model',
-    provider: 'anthropic',
-    apiKey: '',
-    baseURL: 'https://api.anthropic.com',
-    model: 'claude-sonnet-4-6',
-  };
-}
-
-const TOOLS_INITIAL_COUNT = 6;
-
-export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChange }: Props) {
-  const [models, setModels] = useState<ModelConfig[]>([]);
-  const [activeModelId, setActiveModelId] = useState<string>('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const setModalOpenWithNotify = (open: boolean) => { setModalOpen(open); onModalOpenChange?.(open); };
-  const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
+export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChange, providers, activeModelUid, onProvidersChange }: Props) {
+  const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null);
+  const [provModalOpen, setProvModalOpen] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<{ providerId: string; entry: ModelEntry } | null>(null);
+  const [entryModalOpen, setEntryModalOpen] = useState(false);
   const mcpServers = useChatStore((s) => s.mcpServers);
   const disabledTools = useChatStore((s) => s.disabledTools);
-  const [toolsExpanded, setToolsExpanded] = useState(false);
+  const compressThreshold = useChatStore((s) => s.compressThreshold);
+  const [agentDialogTrigger, setAgentDialogTrigger] = useState(0);
+  const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({});
+  const [collapsedProviders, setCollapsedProviders] = useState<Record<string, boolean>>({});
+  const [confirmDelete, setConfirmDelete] = useState<{ type: 'provider'; id: string; name: string } | { type: 'model'; providerId: string; entryId: string; name: string } | null>(null);
+
+  async function fetchModelsForProvider(prov: ProviderConfig) {
+    setFetchingModels((prev) => ({ ...prev, [prov.id]: true }));
+    try {
+      let url: string;
+      let headers: Record<string, string> = {};
+      if (prov.type === 'anthropic') {
+        url = `${prov.baseURL.replace(/\/$/, '')}/v1/models`;
+        headers = { 'x-api-key': prov.apiKey, 'anthropic-version': '2023-06-01' };
+      } else {
+        url = `${prov.baseURL.replace(/\/$/, '')}/models`;
+        if (prov.apiKey) headers = { Authorization: `Bearer ${prov.apiKey}` };
+      }
+      const res = await new Promise<{ text?: string; error?: string }>((resolve) =>
+        chrome.runtime.sendMessage({ action: 'fetchUrl', url, headers }, resolve)
+      );
+      if (res.error) { toast.error(`拉取失败: ${res.error}`); return; }
+      const json = JSON.parse(res.text ?? '{}');
+      // Anthropic: json.data[].id, OpenAI: json.data[].id
+      const ids: string[] = Array.isArray(json.data)
+        ? json.data.map((m: { id: string }) => m.id).filter(Boolean)
+        : [];
+      if (ids.length === 0) { toast.error('未找到模型'); return; }
+      const newEntries: ModelEntry[] = ids.map((id) => ({
+        id: `fetched-${id}`,
+        label: id,
+        modelId: id,
+      }));
+      // Merge: keep existing entries that are not in fetched list, add new ones
+      const existingModelIds = new Set(prov.models.map((m) => m.modelId));
+      const toAdd = newEntries.filter((e) => !existingModelIds.has(e.modelId));
+      const merged = [...prov.models, ...toAdd];
+      onProvidersChange(providers.map((p) => p.id === prov.id ? { ...p, models: merged } : p));
+      toast.success(`已添加 ${toAdd.length} 个新模型`);
+    } catch (e) {
+      toast.error(`拉取失败: ${String(e)}`);
+    } finally {
+      setFetchingModels((prev) => ({ ...prev, [prov.id]: false }));
+    }
+  }
   const [mcpTools, setMcpTools] = useState<Record<string, McpTool[]>>({});
   const [mcpToolsLoading, setMcpToolsLoading] = useState<Record<string, boolean>>({});
   const [mcpToolsExpanded, setMcpToolsExpanded] = useState<Record<string, boolean>>({});
@@ -60,13 +86,6 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const importFileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    loadModels().then(({ models: ms, activeModelId: aid }) => {
-      setModels(ms);
-      setActiveModelId(aid);
-    });
-  }, []);
 
   // Auto-load tools for enabled servers on mount
   useEffect(() => {
@@ -97,10 +116,8 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
       const tools = await fetchMcpTools(srv);
       setMcpTools((prev) => ({ ...prev, [srv.id]: tools }));
       setMcpToolsExpanded((prev) => ({ ...prev, [srv.id]: true }));
-      toast.success(`已加载 ${tools.length} 个工具`);
     } catch (e) {
       setMcpToolsError((prev) => ({ ...prev, [srv.id]: String(e) }));
-      toast.error(`加载工具失败：${String(e)}`);
     } finally {
       setMcpToolsLoading((prev) => ({ ...prev, [srv.id]: false }));
     }
@@ -111,53 +128,98 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
     useChatStore.getState().setDisabledTools(next);
   }
 
-  function toggleTool(name: string) {
-    const next = disabledTools.includes(name) ? disabledTools.filter((t) => t !== name) : [...disabledTools, name];
-    useChatStore.getState().setDisabledTools(next);
+  function openAddProvider() {
+    const type: ProviderType = 'anthropic';
+    const defaults = PROVIDER_TYPE_DEFAULTS[type];
+    setEditingProvider({ id: `prov-${Date.now()}`, name: '', type, apiKey: '', baseURL: defaults.baseURL, models: [] });
+    setProvModalOpen(true);
+    onModalOpenChange?.(true);
   }
 
-  function openAdd() {
-    setEditingModel(newModel());
-    setModalOpenWithNotify(true);
+  function openEditProvider(prov: ProviderConfig) {
+    setEditingProvider({ ...prov });
+    setProvModalOpen(true);
+    onModalOpenChange?.(true);
   }
 
-  function openEdit(m: ModelConfig) {
-    setEditingModel({ ...m });
-    setModalOpenWithNotify(true);
+  function handleProviderTypeChange(type: ProviderType) {
+    if (!editingProvider) return;
+    setEditingProvider({ ...editingProvider, type, baseURL: PROVIDER_TYPE_DEFAULTS[type].baseURL });
   }
 
-  function updateEditing<K extends keyof ModelConfig>(field: K, value: ModelConfig[K]) {
-    setEditingModel((prev) => prev ? { ...prev, [field]: value } : prev);
-  }
-
-  function handleEditingProviderChange(provider: Provider) {
-    const defaults = PROVIDER_DEFAULTS[provider];
-    setEditingModel((prev) => prev ? { ...prev, provider, baseURL: defaults.baseURL, model: defaults.model } : prev);
-  }
-
-  async function handleModalSave() {
-    if (!editingModel) return;
-    const exists = models.some((m) => m.id === editingModel.id);
+  function handleProviderSave() {
+    if (!editingProvider) return;
+    const exists = providers.some((p) => p.id === editingProvider.id);
     const next = exists
-      ? models.map((m) => m.id === editingModel.id ? editingModel : m)
-      : [...models, editingModel];
-    setModels(next);
-    await saveModels(next, activeModelId);
+      ? providers.map((p) => p.id === editingProvider.id ? editingProvider : p)
+      : [...providers, editingProvider];
+    onProvidersChange(next);
     onModelsChange();
-    toast.success(exists ? '模型已更新' : '模型已添加');
-    setModalOpenWithNotify(false);
+    setProvModalOpen(false);
+    onModalOpenChange?.(false);
+    toast.success(exists ? 'Provider updated' : 'Provider added');
   }
 
-  function handleModalDelete() {
-    if (!editingModel || models.length <= 1) return;
-    const next = models.filter((m) => m.id !== editingModel.id);
-    setModels(next);
-    const newActive = activeModelId === editingModel.id ? (next[0]?.id ?? '') : activeModelId;
-    setActiveModelId(newActive);
-    saveModels(next, newActive);
+  function handleProviderDelete() {
+    if (!editingProvider) return;
+    if (providers.length <= 1) { toast.error('Cannot delete the only provider'); return; }
+    const next = providers.filter((p) => p.id !== editingProvider.id);
+    // If active model was under the deleted provider, reset to first available
+    const deletedProvId = editingProvider.id;
+    const activeIsUnderDeleted = activeModelUid.startsWith(deletedProvId + '/');
+    const fallbackUid = activeIsUnderDeleted ? (next[0]?.models[0] ? `${next[0].id}/${next[0].models[0].id}` : '') : undefined;
+    onProvidersChange(next, fallbackUid);
     onModelsChange();
-    toast.success('模型已删除');
-    setModalOpenWithNotify(false);
+    setProvModalOpen(false);
+    onModalOpenChange?.(false);
+    toast.success('Provider deleted');
+  }
+
+  function openEditEntry(providerId: string, entry: ModelEntry) {
+    setEditingEntry({ providerId, entry: { ...entry } });
+    setEntryModalOpen(true);
+    onModalOpenChange?.(true);
+  }
+
+  function addModelEntry(providerId: string) {
+    const prov = providers.find((p) => p.id === providerId);
+    if (!prov) return;
+    const defaults = PROVIDER_TYPE_DEFAULTS[prov.type];
+    setEditingEntry({ providerId, entry: { id: Date.now().toString(), label: 'New Model', modelId: defaults.modelId } });
+    setEntryModalOpen(true);
+    onModalOpenChange?.(true);
+  }
+
+  function handleEntrySave() {
+    if (!editingEntry) return;
+    const next = providers.map((p) => {
+      if (p.id !== editingEntry.providerId) return p;
+      const exists = p.models.some((m) => m.id === editingEntry.entry.id);
+      return {
+        ...p,
+        models: exists
+          ? p.models.map((m) => m.id === editingEntry.entry.id ? editingEntry.entry : m)
+          : [...p.models, editingEntry.entry],
+      };
+    });
+    onProvidersChange(next);
+    onModelsChange();
+    setEntryModalOpen(false);
+    onModalOpenChange?.(false);
+  }
+
+  function deleteModelEntry(providerId: string, entryId: string) {
+    const next = providers.map((p) =>
+      p.id === providerId ? { ...p, models: p.models.filter((m) => m.id !== entryId) } : p
+    );
+    const deletedUid = `${providerId}/${entryId}`;
+    let fallbackUid: string | undefined;
+    if (activeModelUid === deletedUid) {
+      const firstModel = next.flatMap((p) => p.models.map((m) => `${p.id}/${m.id}`))[0] ?? '';
+      fallbackUid = firstModel;
+    }
+    onProvidersChange(next, fallbackUid);
+    onModelsChange();
   }
 
   function openAddMcp() {
@@ -193,28 +255,22 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
   }
 
   function exportAllSettings() {
-    loadModels().then(({ models: ms, activeModelId: aid }) => {
-      const data = JSON.stringify({ models: ms, activeModelId: aid, mcpServers, disabledTools }, null, 2);
-      const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'ai-page-assist-settings.json';
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success('设置已导出');
-    });
+    const data = JSON.stringify({ providers, mcpServers, disabledTools }, null, 2);
+    const blob = new Blob([data], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ai-page-assist-settings.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('设置已导出');
   }
 
   function importSettingsFromJson(json: string) {
     try {
       const parsed = JSON.parse(json);
-      const promises: Promise<void>[] = [];
-      if (Array.isArray(parsed.models) && parsed.models.length > 0) {
-        const aid = parsed.activeModelId ?? parsed.models[0].id;
-        setModels(parsed.models);
-        setActiveModelId(aid);
-        promises.push(saveModels(parsed.models, aid));
+      if (Array.isArray(parsed.providers) && parsed.providers.length > 0) {
+        onProvidersChange(parsed.providers);
         onModelsChange();
       }
       if (Array.isArray(parsed.mcpServers)) {
@@ -223,13 +279,45 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
       if (Array.isArray(parsed.disabledTools)) {
         useChatStore.getState().setDisabledTools(parsed.disabledTools);
       }
-      Promise.all(promises).then(() => toast.success('设置已导入'));
+      toast.success('设置已导入');
     } catch {
       toast.error('JSON 格式无效');
     }
   }
 
+  function handleConfirmDelete() {
+    if (!confirmDelete) return;
+    if (confirmDelete.type === 'provider') {
+      const next = providers.filter((p) => p.id !== confirmDelete.id);
+      const fallback = activeModelUid.startsWith(confirmDelete.id + '/') ? (next[0]?.models[0] ? `${next[0].id}/${next[0].models[0].id}` : '') : undefined;
+      onProvidersChange(next, fallback);
+      onModelsChange();
+      toast.success('服务商已删除');
+    } else {
+      deleteModelEntry(confirmDelete.providerId, confirmDelete.entryId);
+      toast.success('模型已删除');
+    }
+    setConfirmDelete(null);
+  }
+
   return (
+    <>
+    <AlertDialog open={!!confirmDelete} onOpenChange={(o) => { if (!o) setConfirmDelete(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>确认删除</AlertDialogTitle>
+          <AlertDialogDescription>
+            {confirmDelete?.type === 'provider'
+              ? `确定要删除服务商「${confirmDelete.name}」及其所有模型吗？`
+              : `确定要删除模型「${confirmDelete?.name}」吗？`}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>取消</AlertDialogCancel>
+          <AlertDialogAction onClick={handleConfirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">删除</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Fixed header */}
       <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border bg-background shrink-0">
@@ -249,70 +337,121 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
       {/* Single scrollable body */}
       <div className="flex-1 overflow-y-auto min-h-0">
 
-        {/* ── Models ── */}
+        {/* ── Providers ── */}
         <div className="flex items-center justify-between px-3.5 pt-3.5 pb-1.5">
-          <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">模型</span>
-          <Button variant="outline" size="sm" onClick={openAdd} className="h-6 text-[11px] gap-1">
+          <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">服务商</span>
+          <Button variant="outline" size="sm" onClick={openAddProvider} className="h-6 text-[11px] gap-1">
             <Plus size={11} />
-            添加模型
+            添加服务商
           </Button>
         </div>
-        <div className="px-3.5 pb-4 flex flex-col gap-1.5">
-          {models.map((m) => (
-            <div key={m.id} onClick={() => openEdit(m)} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer border border-border bg-muted/30 hover:bg-muted transition-colors">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0">
-                <Cpu size={15} className="text-primary" />
+        <div className="px-3.5 pb-4 flex flex-col gap-2">
+          {providers.map((prov) => {
+            const isCollapsed = collapsedProviders[prov.id] ?? true;
+            return (
+            <div key={prov.id} style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--muted)', cursor: 'pointer' }} onClick={() => setCollapsedProviders((prev) => ({ ...prev, [prov.id]: !isCollapsed }))}>
+                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: isCollapsed ? 'none' : 'rotate(90deg)', transition: 'transform 0.15s' }}><polyline points="9 18 15 12 9 6"/></svg>
+                <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{prov.name} <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted-foreground)' }}>({prov.type})</span></span>
+                <Button variant="ghost" size="icon" className="h-6 w-6" title="Add model" onClick={(e) => { e.stopPropagation(); addModelEntry(prov.id); }}>
+                  <Plus size={11} />
+                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" title="拉取模型" disabled={fetchingModels[prov.id]} onClick={(e) => { e.stopPropagation(); fetchModelsForProvider(prov); }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: fetchingModels[prov.id] ? 'spin 1s linear infinite' : 'none' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); openEditProvider(prov); }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </Button>
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); if (providers.length <= 1) { toast.error('Cannot delete the only provider'); return; } setConfirmDelete({ type: 'provider', id: prov.id, name: prov.name }); }}>
+                  <Trash2 size={12} />
+                </Button>
               </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold truncate">{m.name}</div>
-                <div className="text-[10.5px] text-muted-foreground mt-0.5">{m.model} · {m.provider}</div>
-              </div>
-              {activeModelId === m.id && (
-                <Badge variant="secondary" className="text-[10px] gap-1 shrink-0">
-                  <Check size={9} />
-                  使用中
-                </Badge>
-              )}
+              {!isCollapsed && <div style={{ padding: '6px 12px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {prov.models.map((entry) => (
+                  <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                    <span style={{ flex: 1 }}>{entry.label}</span>
+                    <span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>{entry.modelId}</span>
+                    <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => openEditEntry(prov.id, entry)}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                      </svg>
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive hover:text-destructive" onClick={() => setConfirmDelete({ type: 'model', providerId: prov.id, entryId: entry.id, name: entry.label })}>
+                      <Trash2 size={10} />
+                    </Button>
+                  </div>
+                ))}
+              </div>}
             </div>
-          ))}
+          );
+          })}
         </div>
 
-        {/* Model Modal */}
-        <Dialog open={modalOpen} onOpenChange={setModalOpenWithNotify}>
-          <DialogContent aria-describedby={undefined}>
+        {/* Provider Modal */}
+        <Dialog open={provModalOpen} onOpenChange={(o) => { setProvModalOpen(o); onModalOpenChange?.(o); }}>
+          <DialogContent className="max-w-sm" aria-describedby={undefined}>
             <DialogHeader>
-              <DialogTitle>{editingModel && models.some((m) => m.id === editingModel.id) ? '编辑模型' : '添加模型'}</DialogTitle>
+              <DialogTitle>{providers.some((p) => p.id === editingProvider?.id) ? 'Edit Provider' : 'Add Provider'}</DialogTitle>
             </DialogHeader>
-            {editingModel && (
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1"><label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">名称</label><Input value={editingModel.name} onChange={(e) => updateEditing('name', e.target.value)} /></div>
-                <div className="flex flex-col gap-1"><label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">提供商</label>
-                  <Select value={editingModel.provider} onValueChange={(v) => handleEditingProviderChange(v as Provider)}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {PROVIDERS.map((p) => <SelectItem key={p.value} value={p.value}>{p.label}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex flex-col gap-1"><label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">模型</label><Input value={editingModel.model} onChange={(e) => updateEditing('model', e.target.value)} /></div>
-                {editingModel.provider !== 'ollama' && (
-                  <div className="flex flex-col gap-1"><label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">API Key</label><Input type="password" value={editingModel.apiKey} placeholder={PROVIDER_DEFAULTS[editingModel.provider].placeholder} onChange={(e) => updateEditing('apiKey', e.target.value)} /></div>
-                )}
-                <div className="flex flex-col gap-1"><label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Base URL</label><Input value={editingModel.baseURL} onChange={(e) => updateEditing('baseURL', e.target.value)} /></div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={activeModelId === editingModel.id} onCheckedChange={() => { setActiveModelId(editingModel.id); saveModels(models, editingModel.id); onModelsChange(); }} />
-                  <span className="text-xs text-muted-foreground">设为默认模型</span>
-                </div>
-                <div className="flex gap-2 pt-1">
-                  <Button onClick={handleModalSave} className="flex-1">保存</Button>
-                  {models.some((m) => m.id === editingModel.id) && models.length > 1 && (
-                    <Button variant="destructive" onClick={handleModalDelete} className="gap-1.5">
-                      <Trash2 size={13} /> 删除
-                    </Button>
-                  )}
-                </div>
+            <div className="flex flex-col gap-3 py-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Name</label>
+                <Input value={editingProvider?.name ?? ''} onChange={(e) => setEditingProvider((p) => p ? { ...p, name: e.target.value } : p)} placeholder="e.g. My Anthropic" />
               </div>
-            )}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Type</label>
+                <Select value={editingProvider?.type} onValueChange={(v) => handleProviderTypeChange(v as ProviderType)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="anthropic">Anthropic</SelectItem>
+                    <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="ollama">Ollama (local)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">API Key</label>
+                <Input type="password" value={editingProvider?.apiKey ?? ''} onChange={(e) => setEditingProvider((p) => p ? { ...p, apiKey: e.target.value } : p)} placeholder={editingProvider ? PROVIDER_TYPE_DEFAULTS[editingProvider.type].placeholder : ''} />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Base URL</label>
+                <Input value={editingProvider?.baseURL ?? ''} onChange={(e) => setEditingProvider((p) => p ? { ...p, baseURL: e.target.value } : p)} />
+              </div>
+            </div>
+            <div className="flex justify-between pt-1">
+              {providers.some((p) => p.id === editingProvider?.id) && (
+                <Button variant="destructive" size="sm" onClick={handleProviderDelete}>Delete</Button>
+              )}
+              <div className="flex gap-2 ml-auto">
+                <Button variant="outline" size="sm" onClick={() => { setProvModalOpen(false); onModalOpenChange?.(false); }}>Cancel</Button>
+                <Button size="sm" onClick={handleProviderSave}>Save</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Model Entry Modal */}
+        <Dialog open={entryModalOpen} onOpenChange={(o) => { setEntryModalOpen(o); onModalOpenChange?.(o); }}>
+          <DialogContent className="max-w-sm" aria-describedby={undefined}>
+            <DialogHeader><DialogTitle>Model Entry</DialogTitle></DialogHeader>
+            <div className="flex flex-col gap-3 py-2">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Label</label>
+                <Input value={editingEntry?.entry.label ?? ''} onChange={(e) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, label: e.target.value } } : s)} placeholder="e.g. Claude Sonnet" />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground">Model ID</label>
+                <Input value={editingEntry?.entry.modelId ?? ''} onChange={(e) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, modelId: e.target.value } } : s)} placeholder="e.g. claude-sonnet-4-6" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" size="sm" onClick={() => { setEntryModalOpen(false); onModalOpenChange?.(false); }}>Cancel</Button>
+              <Button size="sm" onClick={handleEntrySave}>Save</Button>
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -426,7 +565,7 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
                 value={importText}
                 onChange={(e) => setImportText(e.target.value)}
                 placeholder='{"models": [...], "mcpServers": [...]}'
-                className="font-mono text-[11px] min-h-[120px] resize-none"
+                className="font-mono text-[11px] min-h-[120px] max-h-[240px] resize-none overflow-y-auto"
               />
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => importFileRef.current?.click()}>
@@ -451,30 +590,38 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
 
         <div className="h-px bg-border mx-3.5" />
 
-        {/* ── Tools ── */}
-        <div className="px-3.5 pt-3.5 pb-1 text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">工具</div>
-        <div className="px-3 pb-4 flex flex-col gap-1">
-          {(toolsExpanded ? TOOL_META : TOOL_META.slice(0, TOOLS_INITIAL_COUNT)).map((tool) => {
-            const enabled = !disabledTools.includes(tool.name);
-            return (
-              <div key={tool.name} onClick={() => toggleTool(tool.name)} className={cn('flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer border transition-colors', enabled ? 'bg-primary/5 border-primary/20' : 'border-border hover:bg-muted/50')}>
-                <div className="flex-1 min-w-0">
-                  <div className={cn('text-xs font-semibold', enabled ? 'text-foreground' : 'text-muted-foreground')}>{tool.label}</div>
-                  <div className="text-[10.5px] text-muted-foreground mt-0.5">{tool.description}</div>
-                </div>
-                <Switch size="sm" checked={enabled} onClick={(e) => e.stopPropagation()} onCheckedChange={() => toggleTool(tool.name)} />
-              </div>
-            );
-          })}
-          {TOOL_META.length > TOOLS_INITIAL_COUNT && (
-            <Button variant="outline" size="sm" onClick={() => setToolsExpanded((v) => !v)} className="mt-0.5 w-full text-[11px]">
-              {toolsExpanded ? '▲ 收起' : `▼ 显示全部 (${TOOL_META.length})`}
-            </Button>
-          )}
+        {/* ── Agents ── */}
+        <div className="flex items-center justify-between px-3.5 pt-3.5 pb-1.5">
+          <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">Agents</span>
+          <Button variant="outline" size="sm" onClick={() => setAgentDialogTrigger((v) => v + 1)} className="h-6 text-[11px] gap-1">
+            <Plus size={11} />
+            添加 Agent
+          </Button>
+        </div>
+        <AgentsPanel openDialogTrigger={agentDialogTrigger} onModalOpenChange={onModalOpenChange} />
+
+        <div className="h-px bg-border mx-3.5" />
+
+        {/* ── Context Compression ── */}
+        <div className="px-3.5 pt-3.5 pb-4 flex flex-col gap-2">
+          <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">上下文压缩</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-muted-foreground flex-1">消息数阈值（0 = 禁用）</span>
+            <input
+              type="number"
+              min={0}
+              step={2}
+              value={compressThreshold}
+              onChange={(e) => useChatStore.getState().setCompressThreshold(Math.max(0, parseInt(e.target.value) || 0))}
+              className="w-16 h-6 text-[11px] text-center rounded border border-border bg-background px-1"
+            />
+          </div>
+          <p className="text-[10.5px] text-muted-foreground leading-relaxed">当对话历史超过此消息数时自动压缩。输入 <code className="bg-muted px-1 rounded">/compress</code> 立即压缩，输入 <code className="bg-muted px-1 rounded">/clear</code> 清空上下文。</p>
         </div>
 
       </div>
 
     </div>
+    </>
   );
 }

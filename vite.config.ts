@@ -39,6 +39,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         overlay: resolve(__dirname, 'overlay.html'),
+        preview: resolve(__dirname, 'preview.html'),
         content: resolve(__dirname, 'src/content/content.ts'),
         background: resolve(__dirname, 'src/background/background.ts'),
         'content-style': resolve(__dirname, 'src/content/content.css'),

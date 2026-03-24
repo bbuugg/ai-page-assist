@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { loadMcpServers, saveMcpServers, loadDisabledTools, saveDisabledTools, type McpServerConfig } from '../lib/storage';
+import { loadMcpServers, saveMcpServers, loadDisabledTools, saveDisabledTools, loadAgentDisabledTools, saveAgentDisabledTools, loadProviders, saveProviders, loadCompressThreshold, saveCompressThreshold, type McpServerConfig, type ProviderConfig } from '../lib/storage';
+import { loadCustomAgents, saveCustomAgents, type Agent } from '../lib/agents';
 
 interface ChatSessionState {
   input: string;
@@ -8,6 +9,7 @@ interface ChatSessionState {
   streamId: number | null;
   abortController: AbortController | null;
   askUserResolver: ((answer: string) => void) | null;
+  activeAgentId: string | null;
 }
 
 const defaultSessionState = (): ChatSessionState => ({
@@ -17,6 +19,7 @@ const defaultSessionState = (): ChatSessionState => ({
   streamId: null,
   abortController: null,
   askUserResolver: null,
+  activeAgentId: null,
 });
 
 interface ChatStore {
@@ -29,13 +32,24 @@ interface ChatStore {
   setAbortController: (id: string, v: AbortController | null) => void;
   setAskUserResolver: (id: string, v: ((answer: string) => void) | null) => void;
   resetSession: (id: string) => void;
+  customAgents: Agent[];
+  setActiveAgentId: (id: string, agentId: string | null) => void;
+  setCustomAgents: (agents: Agent[]) => void;
   // Shared settings
   mcpServers: McpServerConfig[];
   disabledTools: string[];
+  agentDisabledTools: Record<string, string[]>;
   settingsLoaded: boolean;
   loadSharedSettings: () => Promise<void>;
   setMcpServers: (servers: McpServerConfig[]) => void;
   setDisabledTools: (tools: string[]) => void;
+  setAgentDisabledTools: (map: Record<string, string[]>) => void;
+  providers: ProviderConfig[];
+  activeModelUid: string;
+  setProviders: (providers: ProviderConfig[]) => void;
+  setActiveModelUid: (uid: string) => void;
+  compressThreshold: number;
+  setCompressThreshold: (v: number) => void;
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -64,14 +78,48 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   resetSession: (id) =>
     set((s) => ({ sessions: { ...s.sessions, [id]: defaultSessionState() } })),
 
+  customAgents: [],
+
+  setActiveAgentId: (id, activeAgentId) =>
+    set((s) => ({ sessions: { ...s.sessions, [id]: { ...(s.sessions[id] ?? defaultSessionState()), activeAgentId } } })),
+
+  setCustomAgents: (customAgents) => {
+    set({ customAgents });
+    saveCustomAgents(customAgents);
+  },
+
   // Shared settings
   mcpServers: [],
   disabledTools: [],
+  agentDisabledTools: {},
   settingsLoaded: false,
 
+  providers: [],
+  activeModelUid: '',
+  compressThreshold: 0,
+
+  setProviders: (providers) => {
+    const { activeModelUid } = get();
+    set({ providers });
+    saveProviders(providers, activeModelUid);
+  },
+
+  setActiveModelUid: (activeModelUid) => {
+    const { providers } = get();
+    set({ activeModelUid });
+    saveProviders(providers, activeModelUid);
+  },
+
   loadSharedSettings: async () => {
-    const [servers, tools] = await Promise.all([loadMcpServers(), loadDisabledTools()]);
-    set({ mcpServers: servers, disabledTools: tools, settingsLoaded: true });
+    const [servers, tools, agentDisabledTools, customAgents, { providers, activeModelUid }, compressThreshold] = await Promise.all([
+      loadMcpServers(), loadDisabledTools(), loadAgentDisabledTools(), loadCustomAgents(), loadProviders(), loadCompressThreshold(),
+    ]);
+    set({ mcpServers: servers, disabledTools: tools, agentDisabledTools, customAgents, providers, activeModelUid, compressThreshold, settingsLoaded: true });
+  },
+
+  setCompressThreshold: (v) => {
+    set({ compressThreshold: v });
+    saveCompressThreshold(v);
   },
 
   setMcpServers: (servers) => {
@@ -82,5 +130,10 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setDisabledTools: (tools) => {
     set({ disabledTools: tools });
     saveDisabledTools(tools);
+  },
+
+  setAgentDisabledTools: (map) => {
+    set({ agentDisabledTools: map });
+    saveAgentDisabledTools(map);
   },
 }));

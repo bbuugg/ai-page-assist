@@ -28,6 +28,26 @@ A Chrome extension (MV3) that embeds an AI assistant into the browser side panel
 - Their tools are exposed to the AI alongside the built-in tools
 - Individual tools can be disabled per-session
 
+### Skills Marketplace
+- 6 built-in skills: SEO Analyst, Code Reviewer, Form Automator, Data Extractor, Accessibility Checker, Shopping Assistant
+- Create custom skills with a name, system prompt, and preferred tools
+- Activate a skill by typing `@skillname` in the chat input — a picker appears for selection
+- Active skill shown as a chip in the input box; click ✕ to deactivate
+- Skills inject a system prompt supplement and tool hints into every AI turn
+- ⚡ button in the toolbar opens the Marketplace panel
+
+### AI Tabs
+- When the AI opens new browser tabs (via `open_tab`), they appear in a bar above the chat input
+- Close individual tabs with ✕ or use "Close all" to close them all at once
+
+### HTML Preview Page
+- Open an independent Chrome tab to preview AI-generated HTML
+- Left pane: editable HTML source; right pane: live iframe render
+- **Toolbar "Preview" button** — extracts the first HTML code block from the last AI message and opens/focuses the preview tab
+- **"发送到预览" button on code blocks** — appears in the top-right corner of every HTML code block in AI replies
+- **Real-time sync** — while AI is streaming, the preview page updates automatically (if already open)
+- Communication via `chrome.storage.local` key `previewHtml`; preview page listens with `chrome.storage.onChanged`
+
 ### Ask User (Clarification)
 - When the AI needs clarification before proceeding it calls `ask_user`
 - Execution pauses and the question appears as an AI message
@@ -80,8 +100,11 @@ src/
     storage.ts       # chrome.storage helpers (sessions, settings, MCP servers)
     mcp.ts           # MCP server client (fetch tools, call tools)
 overlay.html         # Entry HTML for side-panel iframe
+preview.html         # Entry HTML for HTML preview page
+  preview/
+    PreviewApp.tsx   # Left code editor + right iframe live preview
 manifest.json        # MV3 manifest
-vite.config.ts       # Build config (3 entry points → plugin/)
+vite.config.ts       # Build config (4 entry points → plugin/)
 ```
 
 ---

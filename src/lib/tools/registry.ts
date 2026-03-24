@@ -28,6 +28,8 @@ import { def as get_page_context } from './definitions/get_page_context';
 import { def as drag_and_drop } from './definitions/drag_and_drop';
 import { def as scroll_to_element } from './definitions/scroll_to_element';
 import { def as extract_page_elements } from './definitions/extract_page_elements';
+import { def as preview_get_html } from './definitions/preview_get_html';
+import { def as preview_exec_js } from './definitions/preview_exec_js';
 
 export const ALL_TOOLS: ToolDef[] = [
   get_element_html,
@@ -59,6 +61,8 @@ export const ALL_TOOLS: ToolDef[] = [
   drag_and_drop,
   scroll_to_element,
   extract_page_elements,
+  preview_get_html,
+  preview_exec_js,
 ];
 
 export const TOOL_MAP = new Map<string, ToolDef>(ALL_TOOLS.map((t) => [t.name, t]));

@@ -1,4 +1,42 @@
 const NAVIGATION_WAIT_TIMEOUT_MS = 12000;
+
+function cdpSetHtml(tabId: number, html: string): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.debugger.attach({ tabId }, '1.3', () => {
+      chrome.runtime.lastError; // consume if already attached
+      // Use Runtime.evaluate to document.write — about:blank has null origin, no extension CSP
+      chrome.debugger.sendCommand({ tabId }, 'Runtime.evaluate', {
+        expression: `document.open();document.write(${JSON.stringify(html)});document.close();`,
+        returnByValue: false,
+      }, () => {
+        resolve();
+      });
+    });
+  });
+}
+
+// Handle cdpRenderInTab message from preview page itself (on load)
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.action === 'cdpRenderInTab') {
+    cdpSetHtml(request.tabId as number, request.html as string).then(() => sendResponse({}));
+    return true;
+  }
+});
+
+// Auto-push previewHtml changes to the preview tab via CDP
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.previewHtml) return;
+  const html = changes.previewHtml.newValue as string | undefined;
+  if (!html) return;
+  chrome.storage.local.get(['previewTabId'], (r) => {
+    const tabId = r.previewTabId as number | undefined;
+    if (!tabId) return;
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) return;
+      cdpSetHtml(tabId, html);
+    });
+  });
+});
 // Track which tab the side panel is viewing
 let activePanelTabId: number | null = null;
 // Track the content page tab (distinct from the extension panel tab)
@@ -99,7 +137,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   for (const [sessionId, ids] of sessionAiTabs) {
     if (ids.includes(tabId)) {
       sessionAiTabs.set(sessionId, ids.filter((id) => id !== tabId));
-      if (sessionId === activeSessionId) pushAiTabsUpdate(sessionId);
+      pushAiTabsUpdate(sessionId);
       break;
     }
   }
@@ -215,12 +253,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Proxy fetch requests (bypasses CORS)
   if (request.action === 'fetchUrl') {
-    const { url } = request;
+    const { url, headers, method, body } = request;
     if (!url || !url.startsWith('http')) {
       sendResponse({ error: `Invalid URL: ${url}` });
       return true;
     }
-    fetch(url, { credentials: 'omit' })
+    fetch(url, { method: method ?? 'GET', credentials: 'omit', headers: headers ?? {}, body: body ?? undefined })
       .then(async (resp) => {
         const text = await resp.text();
         sendResponse({ text, status: resp.status, statusText: resp.statusText });
@@ -288,6 +326,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sendResponse({ result: 'ok' });
             break;
           case 'open_tab': {
+            // Hide scan effect on the current page before switching to new tab
+            if (inspectedTabId) {
+              chrome.tabs.sendMessage(inspectedTabId, { action: 'hideBorderFx' }).catch(() => {});
+            }
             const tab = await chrome.tabs.create({ url: input.url as string | undefined, active: true });
             // Add to session tab group (create group if needed)
             if (tab.id !== undefined) {
@@ -323,6 +365,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 pushAiTabsUpdate(activeSessionId);
               }
               await waitForTabComplete(tab.id);
+              // Push update again after load so tab title is populated
+              if (activeSessionId) pushAiTabsUpdate(activeSessionId);
             }
             sendResponse({ result: `Opened tab ${tab.id}${input.url ? ` at ${input.url}` : ''}` });
             break;
@@ -429,6 +473,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         sendResponse({ error: (err as Error).message });
       }
     })();
+    return true;
+  }
+
+  // Open or update the preview tab and render HTML via CDP Runtime.evaluate
+  if (request.action === 'openRenderTab') {
+    const html = request.html as string;
+    chrome.storage.local.set({ previewHtml: html });
+    chrome.storage.local.get(['previewTabId'], (stored) => {
+      const existingId = stored.previewTabId as number | undefined;
+      const doRender = (tabId: number) => {
+        chrome.storage.local.set({ previewTabId: tabId });
+        cdpSetHtml(tabId, html).then(() => {
+          chrome.tabs.update(tabId, { active: true });
+          sendResponse({ tabId });
+        });
+      };
+      if (existingId) {
+        chrome.tabs.get(existingId, (tab) => {
+          if (chrome.runtime.lastError || !tab) {
+            chrome.tabs.create({ url: 'about:blank', active: false }, (t) => doRender(t.id!));
+          } else {
+            doRender(existingId);
+          }
+        });
+      } else {
+        chrome.tabs.create({ url: 'about:blank', active: false }, (t) => doRender(t.id!));
+      }
+    });
     return true;
   }
 
