@@ -76,8 +76,8 @@ The `manifest.json` requires `storage` permission for `chrome.storage.local` acc
 - No test runner or linter is configured — build success is the only automated check.
 
 ### AI tool system
-- All tools exposed to the AI are defined in `src/lib/tools.ts` (`TOOL_DEFINITIONS` array + `ToolName` union + `TOOL_UI_META` display list).
-- Adding a new tool requires: entry in `TOOL_DEFINITIONS`, entry in `ToolName`, entry in `TOOL_UI_META`, and a handler branch in `executeTool()` (also in `tools.ts`).
+- All tools exposed to the AI are defined in `src/lib/tools/` (`definitions/` for individual tool files, `registry.ts` for `ALL_TOOLS`, `index.ts` for `TOOL_DEFINITIONS` + `executeTool()`).
+- Adding a new tool requires: a definition file in `definitions/`, registration in `registry.ts`, and a handler branch in `executeTool()` in `index.ts`.
 - The special `ask_user` tool pauses the agentic loop and waits for a user reply via a `Promise` resolved in `ChatPanel.tsx`. It must NOT be handled by `executeTool()` — it is intercepted in `anthropic.ts` / `openai.ts` before the normal tool dispatch.
 
 ### AI provider loop
@@ -102,16 +102,17 @@ The `manifest.json` requires `storage` permission for `chrome.storage.local` acc
 - Closing a tab calls `chrome.tabs.remove(tabId).catch(() => {})` directly from the overlay — no AI tool call needed.
 - `aiTabs` state is cleared on new/switched session.
 
-### Skills Marketplace
-- `src/lib/skills.ts` — `Skill` interface, `BUILTIN_SKILLS` (6 built-ins), `loadCustomSkills` / `saveCustomSkills` (chrome.storage key `customSkills`), `getAllSkills`, `buildSkillSystemPrompt`.
-- `activeSkillId: string | null` lives in per-session Zustand state (`store.ts`); `customSkills` in shared store state.
-- `setActiveSkillId(sessionId, skillId)` and `setCustomSkills(skills)` in the store.
+### Agents
+- `src/lib/agents/index.ts` — `Agent` interface, `BUILTIN_AGENTS` (10 built-ins), `loadCustomAgents` / `saveCustomAgents` (chrome.storage key `customAgents`), `getAllAgents`, `buildAgentSystemPrompt`.
+- `activeAgentId: string | null` lives in per-session Zustand state (`store.ts`); `customAgents` in shared store state.
+- `buildAgentSystemPrompt(agent)` appends tool hints + page context hint (for agents with page tools) + navigation rules.
+- `PAGE_CONTEXT_TOOLS` set in `agents/index.ts` determines which agents get page context injected in their message.
 - `runConversationTurn` accepts optional 5th param `extraSystemPrompt?: string`; both `runAnthropicTurn` and `runOpenAITurn` append it to `SYSTEM_PROMPT`.
-- ChatPanel detects `@` in textarea input to show a mention picker popover (keyboard navigable); selecting a skill calls `selectMention(skill)` which strips the `@query` and sets `activeSkillId`.
-- Active skill shown as a chip above the textarea; ✕ button clears `activeSkillId`.
-- Each `handleSend` computes `extraSystemPrompt` from `buildSkillSystemPrompt(activeSkill)` if active.
-- `SkillsPanel.tsx` — full overlay panel for browsing/activating/deleting skills and creating custom ones.
-- ⚡ Skills button in the ChatPanel bottom toolbar toggles the panel.
+- ChatPanel detects `@` in textarea input to show a mention picker popover (keyboard navigable); selecting an agent calls `selectMention(agent)` which strips the `@query` and sets `activeAgentId`.
+- Active agent shown as a chip above the textarea; ✕ button clears `activeAgentId`.
+- Each `handleSend` computes `extraSystemPrompt` from `buildAgentSystemPrompt(activeAgent)` + language hint.
+- `SkillsPanel.tsx` — overlay panel for browsing/activating/deleting agents and creating custom ones.
+- ⚡ button in the ChatPanel bottom toolbar toggles the Agents panel.
 
 ### HTML Preview Page
 - `preview.html` + `src/preview/` — standalone Chrome tab opened via `chrome.runtime.getURL('preview.html')`.
@@ -127,6 +128,7 @@ The `manifest.json` requires `storage` permission for `chrome.storage.local` acc
 - Do not add error handling for scenarios that cannot happen; trust framework guarantees.
 - Keep solutions minimal — no premature abstractions, no extra configurability unless asked.
 - MCP servers are loaded/saved via `loadMcpServers` / `saveMcpServers` in `storage.ts`; disabled tools via `loadDisabledTools` / `saveDisabledTools`.
-- Custom skills loaded/saved via `loadCustomSkills` / `saveCustomSkills` in `skills.ts`.
+- Custom agents loaded/saved via `loadCustomAgents` / `saveCustomAgents` in `src/lib/agents/index.ts`.
 - Build output is `plugin/` (not `dist/`). Load unpacked from project root (where `manifest.json` lives).
 - Desensitization: `createDesensitizer()` handles reversible encode/decode for AI layer; `desensitize()` is for irreversible display masking of tool results. Assistant messages are stored decoded (real text), not with placeholders.
+- Language hint: `navigator.language` is appended to `extraSystemPrompt` in `ChatPanel.tsx` so the AI responds in the user's browser language.

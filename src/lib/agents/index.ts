@@ -49,9 +49,15 @@ export function getAllAgents(customAgents: Agent[]): Agent[] {
   return [...BUILTIN_AGENTS, ...customAgents];
 }
 
+const PAGE_CONTEXT_TOOLS = new Set(['get_page_context', 'get_full_page_html', 'query_page', 'extract_page_elements', 'get_element_html', 'get_element_css', 'get_dom_state']);
+
 export function buildAgentSystemPrompt(agent: Agent): string {
   const toolsHint = agent.recommendedTools.length > 0
     ? `\n\nPreferred tools for this agent: ${agent.recommendedTools.join(', ')}.`
     : '';
-  return `\n\n---\nActive Agent: ${agent.label}\n${agent.systemPrompt}${toolsHint}`;
+  const pageCtxHint = agent.recommendedTools.some((t) => PAGE_CONTEXT_TOOLS.has(t))
+    ? '\n\nPage context: Each user message automatically includes a [Page context] block with the current page URL, title, and text summary — you do NOT need to call get_page_context. Use this context to answer page-related questions directly. If the page context says the current page is unavailable or is an internal browser page such as chrome://, edge://, or about:, do NOT call page interaction or DOM-reading tools on that page.' +
+      '\n\nPage navigation rules: If the current page URL starts with chrome://, edge://, about:, data:, or javascript:, do NOT call any page content tools — use navigation tools first (open_url, open_tab, switch_tab), then page tools after reaching a normal web page. Never navigate away from the current page unless the user explicitly requests it.'
+    : '';
+  return `\n\n---\nActive Agent: ${agent.label}\n${agent.systemPrompt}${toolsHint}${pageCtxHint}`;
 }

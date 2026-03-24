@@ -639,30 +639,35 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
       }
     }
 
-    // Inject current page context into every user turn automatically
-    const pageCtx = await new Promise<string>((resolve) => {
-      chrome.runtime.sendMessage(
-        { action: 'toContent', action_inner: 'tool', tool: 'get_page_context', input: {} },
-        (res: { result?: string; error?: string } | undefined) => {
-          if (chrome.runtime.lastError) { resolve(''); return; }
-          if (res?.error) {
-            // Internal browser page or inaccessible tab
-            resolve(`[Page context unavailable: ${res.error}]`);
-          } else {
-            resolve(res?.result ?? '');
+    // Only inject page context when the active agent uses page tools
+    const PAGE_TOOLS = new Set(['get_page_context', 'get_full_page_html', 'query_page', 'extract_page_elements', 'get_element_html', 'get_element_css', 'get_dom_state']);
+    const agentNeedsPageContext = activeAgent?.recommendedTools.some((t) => PAGE_TOOLS.has(t)) ?? false;
+    let userContent = text;
+    if (agentNeedsPageContext) {
+      const pageCtx = await new Promise<string>((resolve) => {
+        chrome.runtime.sendMessage(
+          { action: 'toContent', action_inner: 'tool', tool: 'get_page_context', input: {} },
+          (res: { result?: string; error?: string } | undefined) => {
+            if (chrome.runtime.lastError) { resolve(''); return; }
+            if (res?.error) {
+              resolve(`[Page context unavailable: ${res.error}]`);
+            } else {
+              resolve(res?.result ?? '');
+            }
           }
-        }
-      );
-      setTimeout(() => resolve(''), 3000);
-    });
-    const ctxChanged = pageCtx && pageCtx !== lastPageCtxRef.current;
-    if (ctxChanged) lastPageCtxRef.current = pageCtx;
-    const userContent = ctxChanged ? `[Page context]\n${pageCtx}\n\n[User message]\n${text}` : text;
+        );
+        setTimeout(() => resolve(''), 3000);
+      });
+      const ctxChanged = pageCtx && pageCtx !== lastPageCtxRef.current;
+      if (ctxChanged) lastPageCtxRef.current = pageCtx;
+      if (ctxChanged) userContent = `[Page context]\n${pageCtx}\n\n[User message]\n${text}`;
+    }
     const newHistory: MessageParam[] = [...historyRef.current, { role: 'user', content: userContent }];
     historyRef.current = newHistory;
 
     try {
-      const extraSystemPrompt = activeAgent ? buildAgentSystemPrompt(activeAgent) : undefined;
+      const langHint = `\n\nRespond in the user's browser language: ${navigator.language}.`;
+      const extraSystemPrompt = (activeAgent ? buildAgentSystemPrompt(activeAgent) : '') + langHint;
       const allToolNames = ALL_TOOLS.map((t) => t.name);
       const ALWAYS_ENABLED = ['ask_user'];
       let extraDisabledTools: string[];
