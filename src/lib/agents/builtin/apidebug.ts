@@ -29,6 +29,6 @@ export const apidebugAgent: Agent = {
     '- Show the full response body (truncate only if > 5000 chars, show first 5000 + note).\n' +
     '- If JSON, pretty-print it.\n' +
     '- Respond in Chinese by default.',
-  recommendedTools: ['fetch_url', 'ask_user'],
+  recommendedTools: ['fetch_url'],
   isBuiltin: true,
 };

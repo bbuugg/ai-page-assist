@@ -29,6 +29,6 @@ export const apidocAgent: Agent = {
     '- If the response is paginated, note it in 备注.\n' +
     '- If the response contains sensitive data, redact values but keep field names.\n' +
     '- Write the documentation in the same language as the user message (Chinese by default).',
-  recommendedTools: ['fetch_url', 'ask_user'],
+  recommendedTools: ['fetch_url'],
   isBuiltin: true,
 };
