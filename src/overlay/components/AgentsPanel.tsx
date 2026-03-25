@@ -7,10 +7,12 @@ import { Textarea } from './ui/textarea';
 import { getAllAgents, type Agent } from '../../lib/agents';
 import { useChatStore } from '../store';
 import { TOOL_META } from '../../lib/tools';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { PencilEdit01Icon, Delete01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons';
 
 const ALL_TOOL_NAMES = TOOL_META.map((t) => t.name);
 
-const EMPTY_FORM = { name: '', label: '', description: '', systemPrompt: '', recommendedTools: [] as string[] };
+const EMPTY_FORM = { name: '', label: '', description: '', systemPrompt: '', recommendedTools: [] as string[], editingId: null as string | null };
 
 interface Props {
   openDialogTrigger?: number;
@@ -59,10 +61,23 @@ export default function AgentsPanel({ openDialogTrigger, onModalOpenChange }: Pr
     store.setCustomAgents(customAgents.filter((s) => s.id !== id));
   }
 
+  function handleEdit(agent: Agent) {
+    setForm({
+      name: agent.name,
+      label: agent.label,
+      description: agent.description ?? '',
+      systemPrompt: agent.systemPrompt,
+      recommendedTools: [...agent.recommendedTools],
+      editingId: agent.id,
+    });
+    setDialogOpen(true);
+    onModalOpenChange?.(true);
+  }
+
   function handleSave() {
     if (!form.name.trim() || !form.label.trim() || !form.systemPrompt.trim()) return;
-    const newAgent: Agent = {
-      id: `custom-${Date.now()}`,
+    const savedAgent: Agent = {
+      id: form.editingId && !form.editingId.startsWith('builtin-') ? form.editingId : `custom-${Date.now()}`,
       name: form.name.toLowerCase().replace(/\s+/g, '-'),
       label: form.label,
       icon: '⚡',
@@ -71,7 +86,17 @@ export default function AgentsPanel({ openDialogTrigger, onModalOpenChange }: Pr
       recommendedTools: form.recommendedTools,
       isBuiltin: false,
     };
-    store.setCustomAgents([...customAgents, newAgent]);
+    if (form.editingId) {
+      // Replace existing custom agent or add override for builtin
+      const exists = customAgents.some((a) => a.id === savedAgent.id);
+      if (exists) {
+        store.setCustomAgents(customAgents.map((a) => a.id === savedAgent.id ? savedAgent : a));
+      } else {
+        store.setCustomAgents([...customAgents, savedAgent]);
+      }
+    } else {
+      store.setCustomAgents([...customAgents, savedAgent]);
+    }
     closeDialog();
   }
 
@@ -103,16 +128,18 @@ export default function AgentsPanel({ openDialogTrigger, onModalOpenChange }: Pr
                       onClick={() => setExpandedAgentId(isExpanded ? null : agent.id)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginTop: 4, color: 'var(--text-muted)', fontSize: 10, display: 'flex', alignItems: 'center', gap: 3 }}
                     >
-                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                        style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }}>
-                        <polyline points="4,2 8,6 4,10" />
-                      </svg>
+                      <HugeiconsIcon icon={ArrowRight01Icon} size={9} style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s' }} />
                       工具 ({enabledCount}/{agent.recommendedTools.length})
                     </button>
                   )}
                 </div>
+                <Button variant="ghost" size="icon" className="h-6 w-6 text-muted-foreground shrink-0" title="编辑" onClick={() => handleEdit(agent)}>
+                  <HugeiconsIcon icon={PencilEdit01Icon} size={13} />
+                </Button>
                 {!agent.isBuiltin && (
-                  <Button variant="ghost" size="sm" className="h-6 text-[10px] px-2 text-destructive shrink-0" onClick={() => handleDelete(agent.id)}>删除</Button>
+                  <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive shrink-0" title="删除" onClick={() => handleDelete(agent.id)}>
+                    <HugeiconsIcon icon={Delete01Icon} size={13} />
+                  </Button>
                 )}
               </div>
               {isExpanded && agent.recommendedTools.length > 0 && (
@@ -146,7 +173,7 @@ export default function AgentsPanel({ openDialogTrigger, onModalOpenChange }: Pr
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); }}>
         <DialogContent aria-describedby={undefined} className="w-[400px] max-h-[80vh] p-0 gap-0 flex flex-col overflow-hidden">
           <DialogHeader className="px-4 py-3 border-b border-border shrink-0">
-            <DialogTitle className="text-sm">添加 Agent</DialogTitle>
+            <DialogTitle className="text-sm">{form.editingId ? '编辑 Agent' : '添加 Agent'}</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col gap-3 p-4 overflow-y-auto">
             <Input

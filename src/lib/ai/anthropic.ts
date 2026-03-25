@@ -178,8 +178,9 @@ export async function runAnthropicTurn(
         if (tb.name === 'ask_user') {
           const question = (tb.input as Record<string, unknown>).question as string;
           const isYesNo = !!(tb.input as Record<string, unknown>).is_yes_no;
+          const options = (tb.input as Record<string, unknown>).options as string[] | undefined;
           const answer = callbacks.onAskUser
-            ? await callbacks.onAskUser(question, isYesNo)
+            ? await callbacks.onAskUser(question, isYesNo, options)
             : '';
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: answer });
           // Push tool result and continue loop so AI can respond with the answer

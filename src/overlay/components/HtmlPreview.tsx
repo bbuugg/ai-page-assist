@@ -2,6 +2,8 @@ import { useState, useRef } from 'react';
 import type { ElementData, ChatMessage } from '../App';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Copy01Icon, Tick02Icon, FloppyDiskIcon, Cancel01Icon } from '@hugeicons/core-free-icons';
 
 interface Props {
   data: ElementData;
@@ -52,22 +54,13 @@ export default function HtmlPreview({ data, onClose, onSave, addMessage }: Props
         </div>
         <div className="flex gap-0.5">
           <Button variant="ghost" size="icon" onClick={handleCopy} title="复制" className="h-6 w-6">
-            {copied
-              ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><polyline points="20 6 9 17 4 12"/></svg>
-              : <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            }
+            <HugeiconsIcon icon={copied ? Tick02Icon : Copy01Icon} size={13} className={copied ? 'text-green-500' : ''} />
           </Button>
           <Button variant="ghost" size="icon" onClick={handleSave} title="应用到页面" className="h-6 w-6">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-              <polyline points="17 21 17 13 7 13 7 21"/>
-              <polyline points="7 3 7 8 15 8"/>
-            </svg>
+            <HugeiconsIcon icon={FloppyDiskIcon} size={13} />
           </Button>
           <Button variant="ghost" size="icon" onClick={onClose} title="关闭" className="h-6 w-6">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-            </svg>
+            <HugeiconsIcon icon={Cancel01Icon} size={13} />
           </Button>
         </div>
       </div>

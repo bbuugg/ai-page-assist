@@ -10,6 +10,7 @@ export interface McpServerConfig {
   url: string;       // e.g. http://localhost:3000/mcp
   enabled: boolean;
   type: McpTransportType; // 'http' | 'streamable-http' — both use StreamableHTTP transport
+  headers?: Record<string, string>; // optional custom request headers (e.g. Authorization)
 }
 
 export interface McpTool extends Tool {
@@ -19,25 +20,38 @@ export interface McpTool extends Tool {
   serverName: string;
   serverUrl: string;
   serverType: McpTransportType;
+  serverHeaders?: Record<string, string>;
 }
 
 function createClient(server: McpServerConfig): { client: Client; transport: StreamableHTTPClientTransport } {
-  const transport = new StreamableHTTPClientTransport(new URL(server.url));
+  const transport = new StreamableHTTPClientTransport(
+    new URL(server.url),
+    server.headers && Object.keys(server.headers).length > 0
+      ? { requestInit: { headers: server.headers } }
+      : undefined,
+  );
   const client = new Client({ name: 'ai-page-assist', version: '1.0.0' });
   return { client, transport };
 }
 
-// Fetch tool list from a single MCP server
+// Fetch tool list from a single MCP server (all pages)
 export async function fetchMcpTools(server: McpServerConfig): Promise<McpTool[]> {
   const { client, transport } = createClient(server);
   await client.connect(transport);
   try {
-    const { tools } = await client.listTools();
-    return tools.map((t) => ({
+    const allTools: Tool[] = [];
+    let cursor: string | undefined;
+    do {
+      const res = await client.listTools(cursor ? { cursor } : undefined);
+      allTools.push(...res.tools);
+      cursor = res.nextCursor;
+    } while (cursor);
+    return allTools.map((t) => ({
       serverId: server.id,
       serverName: server.name,
       serverUrl: server.url,
       serverType: server.type,
+      serverHeaders: server.headers,
       name: `mcp__${server.name}__${t.name}`,
       originalName: t.name,
       description: `[MCP: ${server.name}] ${t.description ?? t.name}`,
@@ -64,6 +78,7 @@ export async function callMcpTool(
     url: tool.serverUrl,
     enabled: true,
     type: tool.serverType,
+    headers: tool.serverHeaders,
   };
   const { client, transport } = createClient(server);
   await client.connect(transport);

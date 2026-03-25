@@ -26,6 +26,7 @@ export interface ChatMessage {
   toolIsError?: boolean;
   rawLogs?: { request: string; response: string }[];
   isAskUser?: boolean;
+  askUserOptions?: string[];
   thinkingText?: string;
   toolCall?: { name: string; input: Record<string, unknown> };
 }
@@ -157,12 +158,12 @@ export default function App() {
     });
   }
 
-  function markLastMessageAsAskUser() {
+  function markLastMessageAsAskUser(options?: string[]) {
     setActiveSession((prev) => {
       const msgs = [...prev.messages];
       const last = msgs[msgs.length - 1];
       if (last?.role === 'assistant') {
-        msgs[msgs.length - 1] = { ...last, isAskUser: true };
+        msgs[msgs.length - 1] = { ...last, isAskUser: true, askUserOptions: options };
       }
       return { ...prev, messages: msgs };
     });

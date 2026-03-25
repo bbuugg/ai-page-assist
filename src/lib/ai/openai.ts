@@ -234,9 +234,10 @@ export async function runOpenAITurn(
           continue;
         }
         if (tb.name === 'ask_user') {
-          const question = (tb.input as { question?: string; is_yes_no?: boolean }).question ?? 'Please provide more information.';
+          const question = (tb.input as { question?: string; is_yes_no?: boolean; options?: string[] }).question ?? 'Please provide more information.';
           const isYesNo = !!(tb.input as { is_yes_no?: boolean }).is_yes_no;
-          const answer = callbacks.onAskUser ? await callbacks.onAskUser(question, isYesNo) : '';
+          const options = (tb.input as { options?: string[] }).options;
+          const answer = callbacks.onAskUser ? await callbacks.onAskUser(question, isYesNo, options) : '';
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: answer });
           // Do not call onToolCall/onToolResult for ask_user — UI handles it via onAskUser
           continue;

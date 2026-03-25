@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { cn } from '@/lib/utils';
 import { useChatStore } from '../store';
 import { marked, Renderer } from 'marked';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { ArrowRight01Icon, Copy01Icon, Tick02Icon, Refresh01Icon, Cancel01Icon, StopIcon, Delete01Icon, Wifi01Icon } from '@hugeicons/core-free-icons';
 
 const renderer = new Renderer();
 renderer.link = ({ href, title, text }: { href: string; title?: string | null; text: string }) => {
@@ -35,7 +37,7 @@ interface Props {
   onPatchLastToolResult: (result: string, isError?: boolean) => void;
   onPatchLastAssistantThinking: (thinkingText: string) => void;
   onRemoveLastStreamingMessage: () => void;
-  onMarkLastMessageAsAskUser: () => void;
+  onMarkLastMessageAsAskUser: (options?: string[]) => void;
   onAppendRawLog: (log: { request: string; response: string }) => void;
   onRecordToolCall: (name: string, input: Record<string, unknown>) => void;
   onDeleteMessage: (id: number) => void;
@@ -59,7 +61,7 @@ const ThinkingBlock = memo(function ThinkingBlock({ text }: { text: string }) {
         onClick={() => setOpen((v) => !v)}
         style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '2px 0', fontSize: 11 }}
       >
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+        <HugeiconsIcon icon={ArrowRight01Icon} size={9} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
         思考过程
       </button>
       {open && (
@@ -92,13 +94,13 @@ const RawLogPanel = memo(function RawLogPanel({ logs }: { logs: { request: strin
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 text-[10px] text-muted-foreground px-1 py-0.5 cursor-pointer bg-transparent border-none whitespace-nowrap"
       >
-        <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}><polyline points="9 18 15 12 9 6"/></svg>
+        <HugeiconsIcon icon={ArrowRight01Icon} size={9} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
         原始日志 ({logs.length})
       </button>
       {open && (
         <div className="rounded-lg bg-muted p-2 text-[10.5px] mt-0.5">
           {logs.length > 1 && (
-            <div className="flex gap-1 mb-1.5">
+            <div className="flex flex-wrap gap-1 mb-1.5">
               {logs.map((_, i) => (
                 <Button key={i} variant={activeIdx === i ? 'secondary' : 'ghost'} size="sm" className="h-5 text-[10px] px-2" onClick={() => setActiveIdx(i)}>轮次 {i + 1}</Button>
               ))}
@@ -116,11 +118,7 @@ const RawLogPanel = memo(function RawLogPanel({ logs }: { logs: { request: strin
               className="h-5 text-[10px] px-2 ml-auto gap-1"
               onClick={handleCopy}
             >
-              {copied ? (
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><polyline points="20 6 9 17 4 12"/></svg>
-              ) : (
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              )}
+              <HugeiconsIcon icon={copied ? Tick02Icon : Copy01Icon} size={10} className={copied ? 'text-green-500' : ''} />
               {copied ? 'Copied' : 'Copy'}
             </Button>
           </div>
@@ -148,10 +146,7 @@ const ToolMessage = memo(function ToolMessage({ msg }: { msg: ChatMessage }) {
         className="flex items-center gap-1.5 w-full bg-transparent border-none cursor-pointer px-2.5 py-1 italic text-[11px] text-left font-[inherit]"
         style={{ color: 'inherit' }}
       >
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-          style={{ flexShrink: 0, transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }}>
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+        <HugeiconsIcon icon={ArrowRight01Icon} size={10} style={{ flexShrink: 0, transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }} />
         {msg.toolIsError ? '⚠ ' : ''}{msg.text}
       </button>
       {open && msg.toolResult && (
@@ -719,12 +714,12 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
           onDone: () => {},
           onError: (err) => { throw err; },
           onRawLog: (request, response) => { onAppendRawLog({ request, response }); },
-          onAskUser: (question, isYesNo) => {
+          onAskUser: (question, isYesNo, options) => {
             streamBufRef.current = '';
             streamIdRef.current = null;
             setIsThinking(false);
             onAddMessage('assistant', desensitizeRef.current.decode(question));
-            if (isYesNo) onMarkLastMessageAsAskUser();
+            if (isYesNo || (options && options.length > 0)) onMarkLastMessageAsAskUser(options);
             return new Promise<string>((resolve) => {
               askUserResolverRef.current = resolve;
             });
@@ -812,24 +807,12 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   <div className="absolute -bottom-6 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm rounded-md px-1 py-0.5 shadow-sm">
                     <Button variant="ghost" size="icon" className="h-5 w-5 text-foreground" title={copiedMsgId === m.id ? '已复制!' : '复制'}
                       onClick={() => { navigator.clipboard.writeText(m.text).then(() => { setCopiedMsgId(m.id); setTimeout(() => setCopiedMsgId(null), 1500); }); }}>
-                      {copiedMsgId === m.id ? (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      ) : (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="9" y="9" width="13" height="13" rx="2"/>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                      )}
+                      <HugeiconsIcon icon={copiedMsgId === m.id ? Tick02Icon : Copy01Icon} size={11} className={copiedMsgId === m.id ? 'text-green-500' : ''} />
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" title="删除">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                            <path d="M10 11v6"/><path d="M14 11v6"/>
-                            <path d="M9 6V4h6v2"/>
-                          </svg>
+                          <HugeiconsIcon icon={Delete01Icon} size={11} />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
@@ -863,33 +846,31 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   />
                   </div>
                   {m.isAskUser && sess.askUserResolver !== null && (
-                    <div className="flex flex-row gap-1.5 justify-end" style={{ animation: 'ai-pop-in 0.22s cubic-bezier(0.34,1.56,0.64,1)' }}>
-                      <Button variant="outline" size="icon" className="h-6 w-6 rounded-full" onClick={() => { void handleSend('no'); }} title="取消">✕</Button>
-                      <Button size="icon" className="h-6 w-6 rounded-full" onClick={() => { void handleSend('yes'); }} title="确认">✓</Button>
+                    <div className="flex flex-col gap-1.5 w-full" style={{ animation: 'ai-pop-in 0.22s cubic-bezier(0.34,1.56,0.64,1)' }}>
+                      {m.askUserOptions && m.askUserOptions.length > 0 ? (
+                        m.askUserOptions.map((opt) => (
+                          <button key={opt} onClick={() => { void handleSend(opt); }}
+                            className="w-full text-left text-xs px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted transition-colors whitespace-normal break-words"
+                          >{opt}</button>
+                        ))
+                      ) : (
+                        <div className="flex flex-row gap-1.5 justify-end">
+                          <Button variant="outline" size="icon" className="h-6 w-6 rounded-full" onClick={() => { void handleSend('no'); }} title="取消">✕</Button>
+                          <Button size="icon" className="h-6 w-6 rounded-full" onClick={() => { void handleSend('yes'); }} title="确认">✓</Button>
+                        </div>
+                      )}
                     </div>
                   )}
                   {/* Action buttons: overlay bottom-right of bubble */}
                   <div className="absolute -bottom-6 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm rounded-md px-1 py-0.5 shadow-sm">
                     <Button variant="ghost" size="icon" className="h-5 w-5 text-foreground" title={copiedMsgId === m.id ? '已复制!' : '复制'}
                       onClick={() => { navigator.clipboard.writeText(m.text).then(() => { setCopiedMsgId(m.id); setTimeout(() => setCopiedMsgId(null), 1500); }); }}>
-                      {copiedMsgId === m.id ? (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                      ) : (
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="9" y="9" width="13" height="13" rx="2"/>
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-                        </svg>
-                      )}
+                      <HugeiconsIcon icon={copiedMsgId === m.id ? Tick02Icon : Copy01Icon} size={11} className={copiedMsgId === m.id ? 'text-green-500' : ''} />
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" title="删除">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                            <path d="M10 11v6"/><path d="M14 11v6"/>
-                            <path d="M9 6V4h6v2"/>
-                          </svg>
+                          <HugeiconsIcon icon={Delete01Icon} size={11} />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
@@ -945,9 +926,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                 title="Close tab"
                 className="shrink-0 text-muted-foreground hover:text-foreground p-0 leading-none flex items-center"
               >
-                <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                  <line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/>
-                </svg>
+                <HugeiconsIcon icon={Cancel01Icon} size={10} />
               </button>
             </div>
           ))}
@@ -1105,9 +1084,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   onMouseDown={(e) => { e.preventDefault(); store.setActiveAgentId(sessionId, null); }}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', lineHeight: 1 }}
                 >
-                  <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/>
-                  </svg>
+                  <HugeiconsIcon icon={Cancel01Icon} size={9} />
                 </button>
               </div>
             </div>
@@ -1186,11 +1163,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   title="MCP Servers"
                   className={cn('h-6 text-[10px] font-semibold gap-1 px-2', showMcpPopover && 'text-primary')}
                 >
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="3" />
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                    <path d="M4.93 4.93a10 10 0 0 0 0 14.14" />
-                  </svg>
+                  <HugeiconsIcon icon={Wifi01Icon} size={11} />
                   MCP
                   {mcpServers.filter((s) => s.enabled).length > 0 && (
                     <Badge variant="secondary" className="text-[9px] px-1 py-0 h-3.5">
@@ -1207,11 +1180,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   >
                     {/* Header */}
                     <div className="flex items-center gap-1.5 px-3.5 py-2.5 border-b border-border bg-muted/50 text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="opacity-70">
-                        <circle cx="12" cy="12" r="3" />
-                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
-                        <path d="M4.93 4.93a10 10 0 0 0 0 14.14" />
-                      </svg>
+                      <HugeiconsIcon icon={Wifi01Icon} size={12} className="opacity-70" />
                       MCP 服务器
                     </div>
                     {/* Server list */}
@@ -1236,11 +1205,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                               title="Refresh tools"
                               className="h-5 w-5 shrink-0"
                             >
-                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
-                                style={{ animation: mcpToolsLoading[srv.id] ? 'spin 1s linear infinite' : 'none' }}>
-                                <polyline points="23 4 23 10 17 10" />
-                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                              </svg>
+                              <HugeiconsIcon icon={Refresh01Icon} size={11} style={{ animation: mcpToolsLoading[srv.id] ? 'spin 1s linear infinite' : 'none' }} />
                             </Button>
                             <Button
                               variant={mcpExpandedServers[srv.id] ? 'secondary' : 'ghost'}
@@ -1249,10 +1214,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                               title={mcpExpandedServers[srv.id] ? 'Hide tools' : 'Show tools'}
                               className="h-5 w-5 shrink-0"
                             >
-                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                                style={{ transform: mcpExpandedServers[srv.id] ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }}>
-                                <polyline points="9 18 15 12 9 6" />
-                              </svg>
+                              <HugeiconsIcon icon={ArrowRight01Icon} size={10} style={{ transform: mcpExpandedServers[srv.id] ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }} />
                             </Button>
                           </div>
                           {/* Tool list */}
@@ -1269,9 +1231,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                                 >
                                   <div className={cn('w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center border', disabledTools.includes(tool.name) ? 'border-muted-foreground/30 bg-transparent' : 'border-primary bg-primary')}>
                                     {!disabledTools.includes(tool.name) && (
-                                      <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                        <polyline points="2 6 5 9 10 3" />
-                                      </svg>
+                                      <HugeiconsIcon icon={Tick02Icon} size={8} color="white" />
                                     )}
                                   </div>
                                   <span className="text-[10.5px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap flex-1">{tool.originalName}</span>
@@ -1305,9 +1265,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                 title="Stop"
                 className="h-8 w-8 rounded-full shrink-0"
               >
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-                  <rect x="4" y="4" width="16" height="16" rx="3"/>
-                </svg>
+                <HugeiconsIcon icon={StopIcon} size={10} />
               </Button>
             ) : (
               <Button

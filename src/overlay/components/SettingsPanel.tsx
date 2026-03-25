@@ -12,7 +12,8 @@ import { fetchMcpTools, type McpTool } from '../../lib/mcp';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Check, Plus, Trash2 } from 'lucide-react';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { Upload01Icon, Download01Icon, ArrowRight01Icon, Refresh01Icon, PencilEdit01Icon, EyeIcon, Add01Icon, Delete01Icon, Tick01Icon, Cancel01Icon } from '@hugeicons/core-free-icons';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 
 interface Props {
@@ -324,11 +325,11 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
         <span className="text-xs font-semibold tracking-tight">设置</span>
         <div className="flex gap-1">
           <Button variant="ghost" size="sm" onClick={() => setImportDialogOpen(true)} className="h-6 text-[11px] gap-1" title="导入设置">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 14 12 9 17 14"/><line x1="12" y1="9" x2="12" y2="21"/></svg>
+            <HugeiconsIcon icon={Upload01Icon} size={11} />
             导入
           </Button>
           <Button variant="ghost" size="sm" onClick={exportAllSettings} className="h-6 text-[11px] gap-1" title="导出所有设置">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <HugeiconsIcon icon={Download01Icon} size={11} />
             导出
           </Button>
         </div>
@@ -341,7 +342,7 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
         <div className="flex items-center justify-between px-3.5 pt-3.5 pb-1.5">
           <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">服务商</span>
           <Button variant="outline" size="sm" onClick={openAddProvider} className="h-6 text-[11px] gap-1">
-            <Plus size={11} />
+            <HugeiconsIcon icon={Add01Icon} size={11} />
             添加服务商
           </Button>
         </div>
@@ -351,22 +352,19 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
             return (
             <div key={prov.id} style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'var(--muted)', cursor: 'pointer' }} onClick={() => setCollapsedProviders((prev) => ({ ...prev, [prov.id]: !isCollapsed }))}>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transform: isCollapsed ? 'none' : 'rotate(90deg)', transition: 'transform 0.15s' }}><polyline points="9 18 15 12 9 6"/></svg>
+                <HugeiconsIcon icon={ArrowRight01Icon} size={9} style={{ flexShrink: 0, transform: isCollapsed ? 'none' : 'rotate(90deg)', transition: 'transform 0.15s' }} />
                 <span style={{ flex: 1, fontWeight: 600, fontSize: 13 }}>{prov.name} <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--muted-foreground)' }}>({prov.type})</span></span>
                 <Button variant="ghost" size="icon" className="h-6 w-6" title="Add model" onClick={(e) => { e.stopPropagation(); addModelEntry(prov.id); }}>
-                  <Plus size={11} />
+                  <HugeiconsIcon icon={Add01Icon} size={11} />
                 </Button>
                 <Button variant="ghost" size="icon" className="h-6 w-6" title="拉取模型" disabled={fetchingModels[prov.id]} onClick={(e) => { e.stopPropagation(); fetchModelsForProvider(prov); }}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: fetchingModels[prov.id] ? 'spin 1s linear infinite' : 'none' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                  <HugeiconsIcon icon={Refresh01Icon} size={11} style={{ animation: fetchingModels[prov.id] ? 'spin 1s linear infinite' : 'none' }} />
                 </Button>
                 <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); openEditProvider(prov); }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                  </svg>
+                  <HugeiconsIcon icon={PencilEdit01Icon} size={12} />
                 </Button>
                 <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={(e) => { e.stopPropagation(); if (providers.length <= 1) { toast.error('Cannot delete the only provider'); return; } setConfirmDelete({ type: 'provider', id: prov.id, name: prov.name }); }}>
-                  <Trash2 size={12} />
+                  <HugeiconsIcon icon={Delete01Icon} size={12} />
                 </Button>
               </div>
               {!isCollapsed && <div style={{ padding: '6px 12px 10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -375,13 +373,10 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
                     <span style={{ flex: 1 }}>{entry.label}</span>
                     <span style={{ color: 'var(--muted-foreground)', fontSize: 11 }}>{entry.modelId}</span>
                     <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => openEditEntry(prov.id, entry)}>
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                      </svg>
+                      <HugeiconsIcon icon={PencilEdit01Icon} size={10} />
                     </Button>
                     <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive hover:text-destructive" onClick={() => setConfirmDelete({ type: 'model', providerId: prov.id, entryId: entry.id, name: entry.label })}>
-                      <Trash2 size={10} />
+                      <HugeiconsIcon icon={Delete01Icon} size={10} />
                     </Button>
                   </div>
                 ))}
@@ -461,7 +456,7 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
         <div className="flex items-center justify-between px-3.5 pt-3.5 pb-1.5">
           <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">MCP 服务器</span>
           <Button variant="outline" size="sm" onClick={openAddMcp} className="h-6 text-[11px] gap-1">
-            <Plus size={11} />
+            <HugeiconsIcon icon={Add01Icon} size={11} />
             添加服务器
           </Button>
         </div>
@@ -476,18 +471,25 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
                   <div className="text-[10.5px] text-muted-foreground truncate">{srv.url}</div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <Button variant="ghost" size="sm" className="h-6 text-[11px]" disabled={mcpToolsLoading[srv.id]} onClick={() => refreshMcpTools(srv)}>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: mcpToolsLoading[srv.id] ? 'spin 1s linear infinite' : 'none' }}><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                    {mcpTools[srv.id] ? `工具 (${mcpTools[srv.id].length})` : '加载工具'}
+                  {mcpTools[srv.id] && (
+                    <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1"
+                      onClick={() => setMcpToolsExpanded((prev) => ({ ...prev, [srv.id]: !prev[srv.id] }))}
+                    >
+                      <HugeiconsIcon icon={ArrowRight01Icon} size={9} style={{ transform: mcpToolsExpanded[srv.id] ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.15s', flexShrink: 0 }} />
+                      工具 ({mcpTools[srv.id].length})
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="icon" className="h-6 w-6" disabled={mcpToolsLoading[srv.id]} onClick={() => refreshMcpTools(srv)} title="刷新工具">
+                    <HugeiconsIcon icon={Refresh01Icon} size={10} style={{ animation: mcpToolsLoading[srv.id] ? 'spin 1s linear infinite' : 'none' }} />
                   </Button>
                   <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditMcp(srv)} title="编辑">
-                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <HugeiconsIcon icon={PencilEdit01Icon} size={11} />
                   </Button>
                   <Switch checked={srv.enabled} onCheckedChange={(v) => useChatStore.getState().setMcpServers(mcpServers.map((s) => s.id === srv.id ? { ...s, enabled: v } : s))} />
                 </div>
               </div>
               {mcpToolsError[srv.id] && <div className="text-[10.5px] text-destructive py-0.5">{mcpToolsError[srv.id]}</div>}
-              {mcpTools[srv.id] && (
+              {mcpTools[srv.id] && mcpToolsExpanded[srv.id] && (
                 <div className="flex flex-col gap-1 pt-1">
                   {mcpTools[srv.id].map((tool) => {
                     const tname = tool.name;
@@ -535,17 +537,51 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
                   </Select>
                 </div>
                 <div className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">请求头（鉴权）</label>
+                    <Button variant="ghost" size="sm" className="h-5 text-[10px] px-2" onClick={() => updateEditingMcp('headers', { ...(editingMcpServer.headers ?? {}), '': '' })}>+ 添加</Button>
+                  </div>
+                  {Object.entries(editingMcpServer.headers ?? {}).map(([k, v], i) => (
+                    <div key={i} className="flex items-center gap-1">
+                      <Input
+                        value={k}
+                        onChange={(e) => {
+                          const entries = Object.entries(editingMcpServer.headers ?? {});
+                          entries[i] = [e.target.value, v];
+                          updateEditingMcp('headers', Object.fromEntries(entries));
+                        }}
+                        placeholder="Header 名称"
+                        className="h-7 text-xs flex-1"
+                      />
+                      <Input
+                        value={v}
+                        onChange={(e) => {
+                          const entries = Object.entries(editingMcpServer.headers ?? {});
+                          entries[i] = [k, e.target.value];
+                          updateEditingMcp('headers', Object.fromEntries(entries));
+                        }}
+                        placeholder="值"
+                        className="h-7 text-xs flex-1"
+                      />
+                      <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0 text-destructive" onClick={() => {
+                        const entries = Object.entries(editingMcpServer.headers ?? {}).filter((_, j) => j !== i);
+                        updateEditingMcp('headers', Object.fromEntries(entries));
+                      }}><HugeiconsIcon icon={Cancel01Icon} size={11} /></Button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-col gap-1">
                   <label className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">启用</label>
                   <Switch checked={editingMcpServer.enabled} onCheckedChange={(v) => updateEditingMcp('enabled', v)} />
                 </div>
                 <div className="flex justify-between items-center pt-1">
                   {mcpServers.some((s) => s.id === editingMcpServer.id) ? (
                     <Button variant="destructive" size="sm" onClick={handleMcpModalDelete} className="gap-1 text-xs">
-                      <Trash2 size={13} /> 删除
+                      <HugeiconsIcon icon={Delete01Icon} size={13} /> 删除
                     </Button>
                   ) : <div />}
                   <Button size="sm" onClick={handleMcpModalSave} className="gap-1 text-xs">
-                    <Check size={13} /> 保存
+                    <HugeiconsIcon icon={Tick01Icon} size={13} /> 保存
                   </Button>
                 </div>
               </div>
@@ -569,7 +605,7 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
               />
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" className="text-xs gap-1" onClick={() => importFileRef.current?.click()}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 14 12 9 17 14"/><line x1="12" y1="9" x2="12" y2="21"/></svg>
+                  <HugeiconsIcon icon={Upload01Icon} size={11} />
                   选择文件
                 </Button>
                 <input ref={importFileRef} type="file" accept=".json,application/json" className="hidden" onChange={(e) => {
@@ -581,7 +617,7 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
                   e.target.value = '';
                 }} />
                 <Button size="sm" className="ml-auto text-xs gap-1" disabled={!importText.trim()} onClick={() => { importSettingsFromJson(importText); setImportDialogOpen(false); setImportText(''); }}>
-                  <Check size={13} /> 导入
+                  <HugeiconsIcon icon={Tick01Icon} size={13} /> 导入
                 </Button>
               </div>
             </div>
@@ -594,7 +630,7 @@ export default function SettingsPanel({ onClose, onModelsChange, onModalOpenChan
         <div className="flex items-center justify-between px-3.5 pt-3.5 pb-1.5">
           <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">Agents</span>
           <Button variant="outline" size="sm" onClick={() => setAgentDialogTrigger((v) => v + 1)} className="h-6 text-[11px] gap-1">
-            <Plus size={11} />
+            <HugeiconsIcon icon={Add01Icon} size={11} />
             添加 Agent
           </Button>
         </div>
