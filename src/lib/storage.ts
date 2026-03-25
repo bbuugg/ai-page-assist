@@ -319,3 +319,34 @@ export async function loadPreviewHtml(): Promise<string> {
     });
   });
 }
+
+// ---- Search Config ----
+export type SearchEngine = 'searxng' | 'brave' | 'google';
+
+export interface SearchConfig {
+  engine: SearchEngine;
+  searxngUrl: string;   // e.g. https://searx.example.com
+  braveApiKey: string;
+  googleApiKey: string;
+  googleCx: string;     // Custom Search Engine ID
+}
+
+const SEARCH_CONFIG_DEFAULTS: SearchConfig = {
+  engine: 'searxng',
+  searxngUrl: '',
+  braveApiKey: '',
+  googleApiKey: '',
+  googleCx: '',
+};
+
+export async function loadSearchConfig(): Promise<SearchConfig> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['searchConfig'], (result) => {
+      resolve({ ...SEARCH_CONFIG_DEFAULTS, ...(result.searchConfig ?? {}) });
+    });
+  });
+}
+
+export async function saveSearchConfig(config: SearchConfig): Promise<void> {
+  return new Promise((resolve) => chrome.storage.local.set({ searchConfig: config }, resolve));
+}

@@ -32,7 +32,8 @@
       "Bash(git check-ignore -q .worktrees 2>/dev/null && echo 'ignored' || echo 'not-ignored')",
       "Bash(git add .gitignore && git commit -m \"chore: ignore .worktrees directory\")",
       "Bash(git worktree add .worktrees/export-replay -b feature/export-replay)",
-      "Bash(ls D:/Workspace/chrome/ai-page-assist/README* 2>/dev/null || echo 'not found')"
+      "Bash(ls D:/Workspace/chrome/ai-page-assist/README* 2>/dev/null || echo 'not found')",
+      "Bash(git add src/lib/storage.ts && git commit -m 'feat: add SearchConfig type and storage helpers')"
     ]
   }
 }

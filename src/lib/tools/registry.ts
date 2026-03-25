@@ -30,6 +30,7 @@ import { def as scroll_to_element } from './definitions/scroll_to_element';
 import { def as extract_page_elements } from './definitions/extract_page_elements';
 import { def as preview_get_html } from './definitions/preview_get_html';
 import { def as preview_exec_js } from './definitions/preview_exec_js';
+import { def as web_search } from './definitions/web_search';
 
 export const ALL_TOOLS: ToolDef[] = [
   get_element_html,
@@ -63,6 +64,7 @@ export const ALL_TOOLS: ToolDef[] = [
   extract_page_elements,
   preview_get_html,
   preview_exec_js,
+  web_search,
 ];
 
 export const TOOL_MAP = new Map<string, ToolDef>(ALL_TOOLS.map((t) => [t.name, t]));

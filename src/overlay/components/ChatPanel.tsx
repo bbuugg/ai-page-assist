@@ -228,6 +228,8 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
   const replayAbortRef = useRef(false);
   const [showReplayPicker, setShowReplayPicker] = useState(false);
   const replayPickerRef = useRef<HTMLDivElement>(null);
+  const mentionListRef = useRef<HTMLDivElement>(null);
+  const slashListRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const SLASH_COMMANDS = [
     { name: '/compress', description: '调用 AI 压缩当前对话上下文' },
@@ -242,6 +244,18 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
   const mentionAgents = mentionQuery !== null
     ? allAgents.filter((s) => s.name.includes(mentionQuery) || s.label.toLowerCase().includes(mentionQuery))
     : [];
+  useEffect(() => {
+    const list = mentionListRef.current;
+    if (!list) return;
+    const item = list.children[mentionIndex] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: 'nearest' });
+  }, [mentionIndex]);
+  useEffect(() => {
+    const list = slashListRef.current;
+    if (!list) return;
+    const item = list.children[slashIndex] as HTMLElement | undefined;
+    item?.scrollIntoView({ block: 'nearest' });
+  }, [slashIndex]);
   const filteredSlashCommands = slashQuery !== null
     ? SLASH_COMMANDS.filter((c) => {
         const cmdName = c.name.slice(1);
@@ -952,6 +966,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             border: '1px solid var(--glass-border)', borderRadius: 12,
             padding: 4, marginBottom: 4, boxShadow: 'var(--glass-shadow)',
           }}>
+            <div ref={slashListRef} style={{ maxHeight: 240, overflowY: 'auto' }}>
             {filteredSlashCommands.map((cmd, i) => (
               <button
                 key={cmd.name}
@@ -971,6 +986,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                 </div>
               </button>
             ))}
+            </div>
           </div>
         )}
         {mentionQuery !== null && mentionAgents.length > 0 && (
@@ -981,6 +997,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             border: '1px solid var(--glass-border)', borderRadius: 12,
             padding: 4, marginBottom: 4, boxShadow: 'var(--glass-shadow)',
           }}>
+          <div ref={mentionListRef} style={{ maxHeight: 240, overflowY: 'auto' }}>
             {mentionAgents.map((agent, i) => (
               <button
                 key={agent.id}
@@ -1000,6 +1017,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                 </div>
               </button>
             ))}
+          </div>
           </div>
         )}
         <Dialog open={showReplayPicker} onOpenChange={setShowReplayPicker}>
@@ -1050,7 +1068,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             }} />
           </DialogContent>
         </Dialog>
-        <div className="border border-border rounded-2xl px-3 py-2 flex flex-col gap-1.5 bg-background">
+        <div className="border border-border rounded-2xl px-3 py-2 flex flex-col gap-1.5 bg-background" style={{ boxShadow: 'rgba(0,0,0,0.18) 0px 8px 32px 0px, rgba(255,255,255,0.08) 0px 0px 0px 1px inset' }}>
           {replayState && (
             <div style={{
               display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px',
