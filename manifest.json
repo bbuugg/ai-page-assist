@@ -11,7 +11,8 @@
     "sidePanel",
     "tabGroups",
     "tabs",
-    "debugger"
+    "debugger",
+    "microphone"
   ],
   "host_permissions": [
     "<all_urls>"

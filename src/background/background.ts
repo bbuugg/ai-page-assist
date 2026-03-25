@@ -196,6 +196,60 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  // Speech recognition via executeScript MAIN world (bypasses page CSP)
+  if (request.action === 'SPEECH_START' || request.action === 'SPEECH_STOP') {
+    const tabId = inspectedTabId ?? activePanelTabId;
+    if (!tabId) { sendResponse({}); return false; }
+    const lang = (request.lang as string | undefined) ?? 'en-US';
+    const iStop = request.action === 'SPEECH_STOP';
+    const fnStart = (langArg: string) => {
+      const w = window as typeof window & { __aiSR?: SpeechRecognition };
+      const SR = window.SpeechRecognition ?? (window as typeof window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
+      if (!SR) { window.postMessage({ __aiSpeech: 'end', error: 'unsupported' }, '*'); return; }
+      const doStart = () => {
+        if (w.__aiSR) { try { w.__aiSR.stop(); } catch (_) {} }
+        const r = new SR();
+        r.lang = langArg;
+        r.continuous = false;
+        r.interimResults = false;
+        w.__aiSR = r;
+        r.onresult = (e) => {
+          const t = Array.from(e.results).map((res) => res[0].transcript).join('');
+          window.postMessage({ __aiSpeech: 'result', transcript: t }, '*');
+        };
+        r.onend = () => { w.__aiSR = undefined; window.postMessage({ __aiSpeech: 'end' }, '*'); };
+        r.onerror = (e) => { w.__aiSR = undefined; window.postMessage({ __aiSpeech: 'end', error: e.error }, '*'); };
+        r.start();
+      };
+      // Request mic permission via getUserMedia first so the browser shows the permission prompt on the page
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then((stream) => { stream.getTracks().forEach((t) => t.stop()); doStart(); })
+        .catch((err) => { window.postMessage({ __aiSpeech: 'end', error: (err as Error).name }, '*'); });
+    };
+    const fnStop = () => {
+      const w = window as typeof window & { __aiSR?: SpeechRecognition };
+      if (w.__aiSR) { try { w.__aiSR.stop(); } catch (_) {} }
+    };
+    // Also notify content script to register its window.message relay listener
+    chrome.tabs.sendMessage(tabId, { action: request.action, lang }).catch(() => {});
+    chrome.tabs.get(tabId, (tab) => { console.log('[AI Speech] tab url:', tab?.url, 'title:', tab?.title); });
+    console.log('[AI Speech] executeScript', request.action, 'tabId:', tabId, 'inspectedTabId:', inspectedTabId, 'activePanelTabId:', activePanelTabId, 'lang:', lang);
+    chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: iStop ? fnStop : fnStart,
+      args: iStop ? [] : [lang],
+    }).then(() => {
+      console.log('[AI Speech] executeScript done', request.action);
+    }).catch((err) => {
+      console.error('[AI Speech] executeScript error:', err);
+      if (iStop) return;
+      chrome.runtime.sendMessage({ type: 'SPEECH_END', error: String(err) }).catch(() => {});
+    });
+    sendResponse({});
+    return false;
+  }
+
   // Forward tool commands from side panel → content script
   if (request.action === 'toContent') {
     const { action: _action, action_inner, ...rest } = request;

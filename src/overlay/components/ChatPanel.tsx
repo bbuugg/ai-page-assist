@@ -234,6 +234,21 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
   const [showReplayPicker, setShowReplayPicker] = useState(false);
   const replayPickerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  useEffect(() => {
+    function onMsg(msg: Record<string, unknown>) {
+      if (msg.type === 'SPEECH_RESULT') {
+        const transcript = msg.transcript as string;
+        setInput((prev) => (prev ? prev + ' ' + transcript : transcript));
+        setTimeout(() => autosizeTextarea(), 0);
+      } else if (msg.type === 'SPEECH_END') {
+        setIsRecording(false);
+      }
+    }
+    chrome.runtime.onMessage.addListener(onMsg);
+    return () => chrome.runtime.onMessage.removeListener(onMsg);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const SLASH_COMMANDS = [
     { name: '/compress', description: '调用 AI 压缩当前对话上下文' },
     { name: '/clear', description: '清空对话上下文' },
@@ -1297,6 +1312,33 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                 </Button>
               )}
             </div>
+            <Button
+              variant={isRecording ? 'destructive' : 'outline'}
+              size="icon"
+              title={isRecording ? '停止录音' : '语音输入'}
+              className="h-8 w-8 rounded-full shrink-0"
+              onClick={() => {
+                if (isRecording) {
+                  chrome.runtime.sendMessage({ action: 'SPEECH_STOP' }).catch(() => {});
+                  return;
+                }
+                setIsRecording(true);
+                chrome.runtime.sendMessage({ action: 'SPEECH_START', lang: navigator.language }).catch(() => {});
+              }}
+            >
+              {isRecording ? (
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="4" y="4" width="16" height="16" rx="3"/>
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="2" width="6" height="12" rx="3"/>
+                  <path d="M5 10a7 7 0 0 0 14 0"/>
+                  <line x1="12" y1="19" x2="12" y2="22"/>
+                  <line x1="8" y1="22" x2="16" y2="22"/>
+                </svg>
+              )}
+            </Button>
             {isRunning ? (
               <Button
                 variant="destructive"

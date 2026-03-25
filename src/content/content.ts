@@ -3,6 +3,7 @@ import { handleToolMessage } from './tool-handlers';
 
 let sessionActive = false;
 let lastElementData: { html: string; css: string } | null = null;
+let speechMsgListenerAttached = false;
 
 const HIGHLIGHT_CLASS = 'ai-extension-highlight-element';
 
@@ -62,6 +63,32 @@ chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
         .onfinish = () => el.remove();
     }
     hideAICursor();
+    return false;
+  }
+
+  if (action === 'SPEECH_START' || action === 'SPEECH_STOP') {
+    // Attach postMessage listener once to relay MAIN world speech events back to panel
+    // Use window flag to prevent duplicate listeners across multiple content script instances
+    const win = window as typeof window & { __aiSpeechListenerAttached?: boolean };
+    if (!speechMsgListenerAttached && !win.__aiSpeechListenerAttached) {
+      speechMsgListenerAttached = true;
+      win.__aiSpeechListenerAttached = true;
+      window.addEventListener('message', (e) => {
+        if (e.source !== window) return;
+        if (!e.data?.__aiSpeech) return;
+        console.log('[AI Speech] content got message:', e.data);
+        try {
+          if (e.data.__aiSpeech === 'result') {
+            chrome.runtime.sendMessage({ action: 'toPanel', payload: { type: 'SPEECH_RESULT', transcript: e.data.transcript } }).catch(() => {});
+          } else if (e.data.__aiSpeech === 'end') {
+            chrome.runtime.sendMessage({ action: 'toPanel', payload: { type: 'SPEECH_END', error: e.data.error } }).catch(() => {});
+          }
+        } catch (err) {
+          console.error('[AI Speech] relay error:', err);
+        }
+      });
+    }
+    // Actual SpeechRecognition runs in background via executeScript(world:MAIN) — nothing more to do here
     return false;
   }
 
