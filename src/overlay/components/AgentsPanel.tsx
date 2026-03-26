@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from './ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from './ui/alert-dialog';
 import { Textarea } from './ui/textarea';
 import { getAllAgents, type Agent } from '../../lib/agents';
 import { useChatStore } from '../store';
@@ -26,6 +27,7 @@ export default function AgentsPanel({ openDialogTrigger, onModalOpenChange }: Pr
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const allAgents = getAllAgents(customAgents);
 
   useEffect(() => {
@@ -58,7 +60,12 @@ export default function AgentsPanel({ openDialogTrigger, onModalOpenChange }: Pr
   }
 
   function handleDelete(id: string) {
-    store.setCustomAgents(customAgents.filter((s) => s.id !== id));
+    setConfirmDeleteId(id);
+  }
+
+  function confirmDelete() {
+    if (confirmDeleteId) store.setCustomAgents(customAgents.filter((s) => s.id !== confirmDeleteId));
+    setConfirmDeleteId(null);
   }
 
   function handleEdit(agent: Agent) {
@@ -227,6 +234,18 @@ export default function AgentsPanel({ openDialogTrigger, onModalOpenChange }: Pr
           </div>
         </DialogContent>
       </Dialog>
+      <AlertDialog open={confirmDeleteId !== null} onOpenChange={(o) => { if (!o) setConfirmDeleteId(null); }}>
+        <AlertDialogContent aria-describedby={undefined}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>删除智能体</AlertDialogTitle>
+            <AlertDialogDescription>确定要删除该智能体吗？此操作不可撤销。</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">删除</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

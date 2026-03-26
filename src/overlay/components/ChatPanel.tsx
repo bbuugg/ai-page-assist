@@ -1216,7 +1216,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
               }
             }}
             onKeyDown={handleKeyDown}
-            placeholder="输入@使用智能体，输入/使用工具"
+            placeholder="输入@使用智能体，输入/使用命令"
             rows={1}
             style={{
               background: 'transparent',
