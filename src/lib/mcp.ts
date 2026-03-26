@@ -2,6 +2,29 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
+export interface McpResource {
+  uri: string;
+  name: string;
+  description?: string;
+  mimeType?: string;
+  serverId: string;
+  serverName: string;
+  serverUrl: string;
+  serverType: McpTransportType;
+  serverHeaders?: Record<string, string>;
+}
+
+export interface McpPrompt {
+  name: string;
+  description?: string;
+  arguments?: { name: string; description?: string; required?: boolean }[];
+  serverId: string;
+  serverName: string;
+  serverUrl: string;
+  serverType: McpTransportType;
+  serverHeaders?: Record<string, string>;
+}
+
 export type McpTransportType = 'http' | 'streamable-http';
 
 export interface McpServerConfig {
@@ -21,6 +44,7 @@ export interface McpTool extends Tool {
   serverUrl: string;
   serverType: McpTransportType;
   serverHeaders?: Record<string, string>;
+  _mcpResources?: McpResource[]; // virtual tools only: attached resource list
 }
 
 function createClient(server: McpServerConfig): { client: Client; transport: StreamableHTTPClientTransport } {
@@ -96,6 +120,87 @@ export async function callMcpTool(
     return { content: text };
   } catch (e) {
     return { content: String(e), isError: true };
+  } finally {
+    await client.close();
+  }
+}
+
+function serverFromResource(r: McpResource): McpServerConfig {
+  return { id: r.serverId, name: r.serverName, url: r.serverUrl, enabled: true, type: r.serverType, headers: r.serverHeaders };
+}
+
+function serverFromPrompt(p: McpPrompt): McpServerConfig {
+  return { id: p.serverId, name: p.serverName, url: p.serverUrl, enabled: true, type: p.serverType, headers: p.serverHeaders };
+}
+
+// Fetch all resources from a single MCP server (all pages)
+export async function fetchMcpResources(server: McpServerConfig): Promise<McpResource[]> {
+  const { client, transport } = createClient(server);
+  await client.connect(transport);
+  try {
+    const all: McpResource[] = [];
+    let cursor: string | undefined;
+    do {
+      const res = await client.listResources(cursor ? { cursor } : undefined);
+      for (const r of res.resources) {
+        all.push({ uri: r.uri, name: r.name, description: r.description, mimeType: r.mimeType, serverId: server.id, serverName: server.name, serverUrl: server.url, serverType: server.type, serverHeaders: server.headers });
+      }
+      cursor = res.nextCursor;
+    } while (cursor);
+    return all;
+  } finally {
+    await client.close();
+  }
+}
+
+// Read a single resource
+export async function readMcpResource(resource: McpResource): Promise<string> {
+  const server = serverFromResource(resource);
+  const { client, transport } = createClient(server);
+  await client.connect(transport);
+  try {
+    const res = await client.readResource({ uri: resource.uri });
+    return res.contents.map((c) => {
+      if ('text' in c) return c.text as string;
+      if ('blob' in c) return `[binary: ${c.mimeType ?? 'unknown'}]`;
+      return JSON.stringify(c);
+    }).join('\n');
+  } finally {
+    await client.close();
+  }
+}
+
+// Fetch all prompts from a single MCP server (all pages)
+export async function fetchMcpPrompts(server: McpServerConfig): Promise<McpPrompt[]> {
+  const { client, transport } = createClient(server);
+  await client.connect(transport);
+  try {
+    const all: McpPrompt[] = [];
+    let cursor: string | undefined;
+    do {
+      const res = await client.listPrompts(cursor ? { cursor } : undefined);
+      for (const p of res.prompts) {
+        all.push({ name: p.name, description: p.description, arguments: p.arguments, serverId: server.id, serverName: server.name, serverUrl: server.url, serverType: server.type, serverHeaders: server.headers });
+      }
+      cursor = res.nextCursor;
+    } while (cursor);
+    return all;
+  } finally {
+    await client.close();
+  }
+}
+
+// Get a prompt with arguments filled in — returns messages to inject
+export async function getMcpPrompt(prompt: McpPrompt, args: Record<string, string>): Promise<{ role: string; content: string }[]> {
+  const server = serverFromPrompt(prompt);
+  const { client, transport } = createClient(server);
+  await client.connect(transport);
+  try {
+    const res = await client.getPrompt({ name: prompt.name, arguments: args });
+    return res.messages.map((m) => ({
+      role: m.role,
+      content: m.content.type === 'text' ? m.content.text : JSON.stringify(m.content),
+    }));
   } finally {
     await client.close();
   }

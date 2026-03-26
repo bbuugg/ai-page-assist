@@ -31,6 +31,7 @@ import { def as extract_page_elements } from './definitions/extract_page_element
 import { def as preview_get_html } from './definitions/preview_get_html';
 import { def as preview_exec_js } from './definitions/preview_exec_js';
 import { def as web_search } from './definitions/web_search';
+import { def as rename_session } from './definitions/rename_session';
 
 export const ALL_TOOLS: ToolDef[] = [
   get_element_html,
@@ -65,6 +66,7 @@ export const ALL_TOOLS: ToolDef[] = [
   preview_get_html,
   preview_exec_js,
   web_search,
+  rename_session,
 ];
 
 export const TOOL_MAP = new Map<string, ToolDef>(ALL_TOOLS.map((t) => [t.name, t]));

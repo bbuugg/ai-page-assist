@@ -1,12 +1,12 @@
 import { loadMcpServers, type ResolvedModel } from '../storage';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
-import type { StreamCallbacks } from './types';
+import type { StreamCallbacks, AskUserMode } from './types';
 import { runAnthropicTurn } from './anthropic';
 import { runOpenAITurn } from './openai';
 import type { Desensitizer } from '../desensitize';
-import { fetchMcpTools, type McpTool } from '../mcp';
+import { fetchMcpTools, fetchMcpResources, readMcpResource, type McpTool, type McpResource } from '../mcp';
 
-export type { StreamCallbacks, MessageParam };
+export type { StreamCallbacks, MessageParam, AskUserMode };
 
 const PAGE_CTX_MARKER = '[Page context]';
 
@@ -43,6 +43,7 @@ export async function runConversationTurn(
   const effectiveDisabledTools = extraDisabledTools ?? [];
 
   const mcpTools: McpTool[] = [];
+  const allMcpResources: McpResource[] = [];
   for (const server of mcpServers.filter((s) => s.enabled)) {
     try {
       const tools = await fetchMcpTools(server);
@@ -50,6 +51,39 @@ export async function runConversationTurn(
     } catch (e) {
       console.warn(`[MCP] Failed to load tools from "${server.name}":`, e);
     }
+    try {
+      const resources = await fetchMcpResources(server);
+      allMcpResources.push(...resources);
+    } catch {
+      // Server may not support resources — ignore
+    }
+  }
+
+  // Inject virtual resource tools if any resources are available
+  if (allMcpResources.length > 0) {
+    const resourceList = allMcpResources.map((r) => `- ${r.uri} (${r.name}${r.description ? ': ' + r.description : ''})`).join('\n');
+    const listTool: McpTool = {
+      name: 'mcp_list_resources',
+      originalName: 'mcp_list_resources',
+      serverId: '',
+      serverName: '',
+      serverUrl: '',
+      serverType: 'http',
+      description: `List all available MCP resources. Available resources:\n${resourceList}`,
+      inputSchema: { type: 'object', properties: {}, required: [] },
+    };
+    const readTool: McpTool = {
+      name: 'mcp_read_resource',
+      originalName: 'mcp_read_resource',
+      serverId: '',
+      serverName: '',
+      serverUrl: '',
+      serverType: 'http',
+      description: 'Read the content of an MCP resource by its URI.',
+      inputSchema: { type: 'object', properties: { uri: { type: 'string', description: 'The URI of the resource to read.' } }, required: ['uri'] },
+      _mcpResources: allMcpResources,
+    } as McpTool & { _mcpResources: McpResource[] };
+    mcpTools.push(listTool, readTool);
   }
 
   const dedupedHistory = deduplicatePageContext(history);

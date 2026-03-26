@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 import { useChatStore } from '../store';
 import { marked, Renderer } from 'marked';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { ArrowRight01Icon, Copy01Icon, Tick02Icon, Refresh01Icon, Cancel01Icon, StopIcon, Delete01Icon, Wifi01Icon } from '@hugeicons/core-free-icons';
+import { ArrowRight01Icon, Copy01Icon, Tick02Icon, Refresh01Icon, Cancel01Icon, StopIcon, Delete01Icon, Wifi01Icon, Brain01Icon } from '@hugeicons/core-free-icons';
 
 const renderer = new Renderer();
 renderer.link = ({ href, title, text }: { href: string; title?: string | null; text: string }) => {
@@ -19,10 +19,10 @@ marked.use({ renderer });
 import 'github-markdown-css/github-markdown.css';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { ChatMessage } from '../App';
-import { runConversationTurn } from '../../lib/ai';
+import { runConversationTurn, type AskUserMode } from '../../lib/ai';
 import { getAllResolvedModels, resolveModel, type ProviderConfig, type McpServerConfig, type Session, savePreviewHtml } from '../../lib/storage';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { fetchMcpTools, type McpTool } from '../../lib/mcp';
+import { fetchMcpTools, fetchMcpResources, fetchMcpPrompts, readMcpResource, getMcpPrompt, type McpTool, type McpResource, type McpPrompt } from '../../lib/mcp';
 import { getAllAgents, buildAgentSystemPrompt, type Agent } from '../../lib/agents';
 import { ALL_TOOLS } from '../../lib/tools/registry';
 import { executeTool } from '../../lib/tools';
@@ -37,7 +37,7 @@ interface Props {
   onPatchLastToolResult: (result: string, isError?: boolean) => void;
   onPatchLastAssistantThinking: (thinkingText: string) => void;
   onRemoveLastStreamingMessage: () => void;
-  onMarkLastMessageAsAskUser: (options?: string[]) => void;
+  onMarkLastMessageAsAskUser: (options?: string[], mode?: AskUserMode) => void;
   onAppendRawLog: (log: { request: string; response: string }) => void;
   onRecordToolCall: (name: string, input: Record<string, unknown>) => void;
   onDeleteMessage: (id: number) => void;
@@ -51,6 +51,7 @@ interface Props {
   aiTabs: { id: number; title: string; url: string }[];
   onCloseAiTab: (tabId: number) => void;
   onCloseAllAiTabs: () => void;
+  onRenameSession?: (title: string) => void;
 }
 
 const ThinkingBlock = memo(function ThinkingBlock({ text }: { text: string }) {
@@ -161,7 +162,7 @@ const ToolMessage = memo(function ToolMessage({ msg }: { msg: ChatMessage }) {
   );
 });
 
-export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLastToolResult, onPatchLastAssistantThinking, onRemoveLastStreamingMessage, onMarkLastMessageAsAskUser, onAppendRawLog, onRecordToolCall, onDeleteMessage, elementData, history, onHistoryChange, providers, activeModelUid, onActiveModelUidChange, aiTabs, onCloseAiTab, onCloseAllAiTabs, sessions }: Props) {
+export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLastToolResult, onPatchLastAssistantThinking, onRemoveLastStreamingMessage, onMarkLastMessageAsAskUser, onAppendRawLog, onRecordToolCall, onDeleteMessage, elementData, history, onHistoryChange, providers, activeModelUid, onActiveModelUidChange, aiTabs, onCloseAiTab, onCloseAllAiTabs, sessions, onRenameSession }: Props) {
   const allModels = getAllResolvedModels(providers);
   const store = useChatStore();
   const sess = store.getSession(sessionId);
@@ -212,6 +213,12 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
   const [mcpTools, setMcpTools] = useState<Record<string, McpTool[]>>({});
   const [mcpToolsLoading, setMcpToolsLoading] = useState<Record<string, boolean>>({});
   const [mcpExpandedServers, setMcpExpandedServers] = useState<Record<string, boolean>>({});
+  const [mcpPopoverTab, setMcpPopoverTab] = useState<'tools' | 'resources' | 'prompts'>('tools');
+  const [mcpResources, setMcpResources] = useState<Record<string, McpResource[]>>({});
+  const [mcpResourcesLoading, setMcpResourcesLoading] = useState<Record<string, boolean>>({});
+  const [mcpPrompts, setMcpPrompts] = useState<Record<string, McpPrompt[]>>({});
+  const [mcpPromptsLoading, setMcpPromptsLoading] = useState<Record<string, boolean>>({});
+  const [mcpPromptArgs, setMcpPromptArgs] = useState<{ serverId: string; prompt: McpPrompt; args: Record<string, string> } | null>(null);
   const mcpPopoverRef = useRef<HTMLDivElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -225,6 +232,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
   }
   const [replayState, setReplayState] = useState<ReplayState | null>(null);
   const replayPausedRef = useRef(false);
+  const [multiSelectState, setMultiSelectState] = useState<Record<number, Set<string>>>({});
   const replayAbortRef = useRef(false);
   const [showReplayPicker, setShowReplayPicker] = useState(false);
   const replayPickerRef = useRef<HTMLDivElement>(null);
@@ -322,6 +330,46 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
       toast.error(`加载工具失败`);
     } finally {
       setMcpToolsLoading((prev) => ({ ...prev, [srv.id]: false }));
+    }
+  }
+
+  async function refreshMcpResourcesForServer(srv: McpServerConfig) {
+    setMcpResourcesLoading((prev) => ({ ...prev, [srv.id]: true }));
+    try {
+      const resources = await fetchMcpResources(srv);
+      setMcpResources((prev) => ({ ...prev, [srv.id]: resources }));
+      toast.success(`已加载 ${resources.length} 个资源`);
+    } catch {
+      toast.error('加载资源失败');
+    } finally {
+      setMcpResourcesLoading((prev) => ({ ...prev, [srv.id]: false }));
+    }
+  }
+
+  async function refreshMcpPromptsForServer(srv: McpServerConfig) {
+    setMcpPromptsLoading((prev) => ({ ...prev, [srv.id]: true }));
+    try {
+      const prompts = await fetchMcpPrompts(srv);
+      setMcpPrompts((prev) => ({ ...prev, [srv.id]: prompts }));
+      toast.success(`已加载 ${prompts.length} 个提示模板`);
+    } catch {
+      toast.error('加载提示模板失败');
+    } finally {
+      setMcpPromptsLoading((prev) => ({ ...prev, [srv.id]: false }));
+    }
+  }
+
+  async function applyMcpPrompt() {
+    if (!mcpPromptArgs) return;
+    const srv = mcpServers.find((s) => s.id === mcpPromptArgs.serverId);
+    if (!srv) return;
+    try {
+      const messages = await getMcpPrompt(srv, mcpPromptArgs.prompt.name, mcpPromptArgs.args);
+      const text = messages.map((m) => m.content).join('\n');
+      setInput(input ? input + '\n' + text : text);
+      setMcpPromptArgs(null);
+    } catch {
+      toast.error('获取提示模板失败');
     }
   }
 
@@ -723,21 +771,27 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             onPatchLastToolResult(result, isError);
           },
           onThinking: (thinkingText) => {
+            if (streamIdRef.current === null) {
+              streamIdRef.current = Date.now();
+              setIsThinking(false);
+              onAddMessage('assistant', '');
+            }
             onPatchLastAssistantThinking(thinkingText);
           },
           onDone: () => {},
           onError: (err) => { throw err; },
           onRawLog: (request, response) => { onAppendRawLog({ request, response }); },
-          onAskUser: (question, isYesNo, options) => {
+          onAskUser: (question, mode, options) => {
             streamBufRef.current = '';
             streamIdRef.current = null;
             setIsThinking(false);
             onAddMessage('assistant', desensitizeRef.current.decode(question));
-            if (isYesNo || (options && options.length > 0)) onMarkLastMessageAsAskUser(options);
+            if (mode !== 'text') onMarkLastMessageAsAskUser(options, mode);
             return new Promise<string>((resolve) => {
               askUserResolverRef.current = resolve;
             });
           },
+          onRenameSession: (title) => { onRenameSession?.(title); },
         },
         abort.signal,
         extraSystemPrompt,
@@ -861,7 +915,36 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   </div>
                   {m.isAskUser && sess.askUserResolver !== null && (
                     <div className="flex flex-col gap-1.5 w-full" style={{ animation: 'ai-pop-in 0.22s cubic-bezier(0.34,1.56,0.64,1)' }}>
-                      {m.askUserOptions && m.askUserOptions.length > 0 ? (
+                      {m.askUserMode === 'multiple' && m.askUserOptions ? (
+                        <>
+                          {m.askUserOptions.map((opt) => {
+                            const selected = (multiSelectState[m.id] ?? new Set()).has(opt);
+                            return (
+                              <button key={opt}
+                                onClick={() => setMultiSelectState((prev) => {
+                                  const s = new Set(prev[m.id] ?? []);
+                                  if (s.has(opt)) s.delete(opt); else s.add(opt);
+                                  return { ...prev, [m.id]: s };
+                                })}
+                                className={cn(
+                                  'w-full text-left text-xs px-3 py-1.5 rounded-lg border transition-colors whitespace-normal break-words flex items-center gap-2',
+                                  selected ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-background hover:bg-muted'
+                                )}
+                              >
+                                <span className={cn('w-3.5 h-3.5 rounded border shrink-0 flex items-center justify-center text-[9px]', selected ? 'bg-primary border-primary text-primary-foreground' : 'border-muted-foreground')}>{selected ? '✓' : ''}</span>
+                                {opt}
+                              </button>
+                            );
+                          })}
+                          <Button size="sm" className="h-6 text-xs mt-0.5 self-end px-3" disabled={(multiSelectState[m.id]?.size ?? 0) === 0}
+                            onClick={() => {
+                              const selected = [...(multiSelectState[m.id] ?? new Set())];
+                              void handleSend(selected.join(', '));
+                              setMultiSelectState((prev) => { const n = { ...prev }; delete n[m.id]; return n; });
+                            }}
+                          >确认选择 {(multiSelectState[m.id]?.size ?? 0) > 0 ? `(${multiSelectState[m.id]!.size})` : ''}</Button>
+                        </>
+                      ) : m.askUserMode === 'single' && m.askUserOptions ? (
                         m.askUserOptions.map((opt) => (
                           <button key={opt} onClick={() => { void handleSend(opt); }}
                             className="w-full text-left text-xs px-3 py-1.5 rounded-lg border border-border bg-background hover:bg-muted transition-colors whitespace-normal break-words"
@@ -1196,61 +1279,49 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                     className="fixed z-[9999] w-[268px] rounded-xl border border-border bg-popover shadow-lg overflow-hidden"
                     style={{ bottom: mcpPopoverPos.bottom, left: Math.max(4, mcpPopoverPos.left) }}
                   >
-                    {/* Header */}
-                    <div className="flex items-center gap-1.5 px-3.5 py-2.5 border-b border-border bg-muted/50 text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">
-                      <HugeiconsIcon icon={Wifi01Icon} size={12} className="opacity-70" />
-                      MCP 服务器
+                    {/* Header with tabs */}
+                    <div className="border-b border-border bg-muted/50">
+                      <div className="flex items-center gap-1.5 px-3.5 pt-2.5 pb-1.5 text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">
+                        <HugeiconsIcon icon={Wifi01Icon} size={12} className="opacity-70" />
+                        MCP 服务器
+                      </div>
+                      <div className="flex px-2 gap-0.5 pb-0">
+                        {(['tools', 'resources', 'prompts'] as const).map((tab) => (
+                          <button key={tab} onClick={() => setMcpPopoverTab(tab)}
+                            className={cn('px-2.5 py-1 text-[10.5px] font-medium rounded-t border-b-2 transition-colors',
+                              mcpPopoverTab === tab ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                            )}
+                          >{tab === 'tools' ? '工具' : tab === 'resources' ? '资源' : '提示模板'}</button>
+                        ))}
+                      </div>
                     </div>
-                    {/* Server list */}
-                    <div className="py-1.5">
+
+                    {/* Tab content */}
+                    <div className="py-1.5 max-h-[320px] overflow-y-auto">
                       {mcpServers.length === 0 && (
                         <div className="px-3.5 py-2.5 text-[11px] text-muted-foreground italic">未配置 MCP 服务器。</div>
                       )}
-                      {mcpServers.map((srv, idx) => (
+
+                      {/* Tools tab */}
+                      {mcpPopoverTab === 'tools' && mcpServers.map((srv, idx) => (
                         <div key={srv.id} className={cn(idx < mcpServers.length - 1 && 'border-b border-border')}>
                           <div className="flex items-center gap-2 px-3.5 py-1.5 hover:bg-muted/50">
-                            <Switch
-                              checked={srv.enabled}
-                              onCheckedChange={(v) => toggleMcpServer(srv.id, v)}
-                              className="scale-75 shrink-0"
-                            />
+                            <Switch checked={srv.enabled} onCheckedChange={(v) => toggleMcpServer(srv.id, v)} className="scale-75 shrink-0" />
                             <span className={cn('flex-1 text-[11.5px] font-semibold overflow-hidden text-ellipsis whitespace-nowrap', srv.enabled ? 'text-foreground' : 'text-muted-foreground')}>{srv.name || srv.url}</span>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => refreshMcpToolsForServer(srv)}
-                              disabled={mcpToolsLoading[srv.id]}
-                              title="Refresh tools"
-                              className="h-5 w-5 shrink-0"
-                            >
+                            <Button variant="ghost" size="icon" onClick={() => refreshMcpToolsForServer(srv)} disabled={mcpToolsLoading[srv.id]} title="刷新工具" className="h-5 w-5 shrink-0">
                               <HugeiconsIcon icon={Refresh01Icon} size={11} style={{ animation: mcpToolsLoading[srv.id] ? 'spin 1s linear infinite' : 'none' }} />
                             </Button>
-                            <Button
-                              variant={mcpExpandedServers[srv.id] ? 'secondary' : 'ghost'}
-                              size="icon"
-                              onClick={() => setMcpExpandedServers((prev) => ({ ...prev, [srv.id]: !prev[srv.id] }))}
-                              title={mcpExpandedServers[srv.id] ? 'Hide tools' : 'Show tools'}
-                              className="h-5 w-5 shrink-0"
-                            >
+                            <Button variant={mcpExpandedServers[srv.id] ? 'secondary' : 'ghost'} size="icon" onClick={() => setMcpExpandedServers((prev) => ({ [srv.id]: !prev[srv.id] }))} className="h-5 w-5 shrink-0">
                               <HugeiconsIcon icon={ArrowRight01Icon} size={10} style={{ transform: mcpExpandedServers[srv.id] ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }} />
                             </Button>
                           </div>
-                          {/* Tool list */}
                           {mcpExpandedServers[srv.id] && (
-                            <div className="mx-2.5 mb-2 rounded-lg border border-border bg-muted/50 flex flex-col">
-                              {!mcpTools[srv.id] && (
-                                <div className="text-[10px] text-muted-foreground px-2.5 py-1.5 italic">Click refresh to load tools</div>
-                              )}
+                            <div className="mx-2.5 mb-2 rounded-lg border border-border bg-muted/50 flex flex-col max-h-[180px] overflow-y-auto">
+                              {!mcpTools[srv.id] && <div className="text-[10px] text-muted-foreground px-2.5 py-1.5 italic">点击刷新加载工具</div>}
                               {(mcpTools[srv.id] ?? []).map((tool) => (
-                                <div
-                                  key={tool.name}
-                                  onClick={() => toggleMcpTool(tool.name)}
-                                  className={cn('flex items-center gap-2 px-2.5 py-1 rounded cursor-pointer hover:bg-muted', disabledTools.includes(tool.name) && 'opacity-40')}
-                                >
+                                <div key={tool.name} onClick={() => toggleMcpTool(tool.name)} className={cn('flex items-center gap-2 px-2.5 py-1 rounded cursor-pointer hover:bg-muted', disabledTools.includes(tool.name) && 'opacity-40')}>
                                   <div className={cn('w-3.5 h-3.5 rounded shrink-0 flex items-center justify-center border', disabledTools.includes(tool.name) ? 'border-muted-foreground/30 bg-transparent' : 'border-primary bg-primary')}>
-                                    {!disabledTools.includes(tool.name) && (
-                                      <HugeiconsIcon icon={Tick02Icon} size={8} color="white" />
-                                    )}
+                                    {!disabledTools.includes(tool.name) && <HugeiconsIcon icon={Tick02Icon} size={8} color="white" />}
                                   </div>
                                   <span className="text-[10.5px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap flex-1">{tool.originalName}</span>
                                 </div>
@@ -1259,18 +1330,82 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                           )}
                         </div>
                       ))}
+
+                      {/* Resources tab */}
+                      {mcpPopoverTab === 'resources' && mcpServers.map((srv, idx) => (
+                        <div key={srv.id} className={cn(idx < mcpServers.length - 1 && 'border-b border-border')}>
+                          <div className="flex items-center gap-2 px-3.5 py-1.5">
+                            <span className="flex-1 text-[11.5px] font-semibold overflow-hidden text-ellipsis whitespace-nowrap text-foreground">{srv.name || srv.url}</span>
+                            <Button variant="ghost" size="icon" onClick={() => refreshMcpResourcesForServer(srv)} disabled={mcpResourcesLoading[srv.id]} title="加载资源" className="h-5 w-5 shrink-0">
+                              <HugeiconsIcon icon={Refresh01Icon} size={11} style={{ animation: mcpResourcesLoading[srv.id] ? 'spin 1s linear infinite' : 'none' }} />
+                            </Button>
+                          </div>
+                          {(mcpResources[srv.id] ?? []).length === 0 && mcpResources[srv.id] && (
+                            <div className="text-[10px] text-muted-foreground px-3.5 pb-1.5 italic">暂无资源</div>
+                          )}
+                          {(mcpResources[srv.id] ?? []).map((res) => (
+                            <div key={res.uri} className="flex items-center gap-2 px-3.5 py-1 hover:bg-muted/50 cursor-pointer" onClick={async () => { try { const content = await readMcpResource(res); setInput(input ? input + '\n' + content : content); setShowMcpPopover(false); } catch { toast.error('读取资源失败'); } }}>
+                              <span className="text-[10.5px] flex-1 overflow-hidden text-ellipsis whitespace-nowrap">{res.name}</span>
+                              <span className="text-[9px] text-muted-foreground shrink-0 max-w-[80px] overflow-hidden text-ellipsis">{res.uri}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+
+                      {/* Prompts tab */}
+                      {mcpPopoverTab === 'prompts' && !mcpPromptArgs && mcpServers.map((srv, idx) => (
+                        <div key={srv.id} className={cn(idx < mcpServers.length - 1 && 'border-b border-border')}>
+                          <div className="flex items-center gap-2 px-3.5 py-1.5">
+                            <span className="flex-1 text-[11.5px] font-semibold overflow-hidden text-ellipsis whitespace-nowrap text-foreground">{srv.name || srv.url}</span>
+                            <Button variant="ghost" size="icon" onClick={() => refreshMcpPromptsForServer(srv)} disabled={mcpPromptsLoading[srv.id]} title="加载提示模板" className="h-5 w-5 shrink-0">
+                              <HugeiconsIcon icon={Refresh01Icon} size={11} style={{ animation: mcpPromptsLoading[srv.id] ? 'spin 1s linear infinite' : 'none' }} />
+                            </Button>
+                          </div>
+                          {(mcpPrompts[srv.id] ?? []).length === 0 && mcpPrompts[srv.id] && (
+                            <div className="text-[10px] text-muted-foreground px-3.5 pb-1.5 italic">暂无提示模板</div>
+                          )}
+                          {(mcpPrompts[srv.id] ?? []).map((prompt) => (
+                            <div key={prompt.name} className="flex items-center gap-2 px-3.5 py-1 hover:bg-muted/50 cursor-pointer" onClick={() => setMcpPromptArgs({ serverId: srv.id, prompt, args: Object.fromEntries((prompt.arguments ?? []).map((a) => [a.name, ''])) })}>
+                              <div className="flex-1 min-w-0">
+                                <div className="text-[10.5px] font-medium overflow-hidden text-ellipsis whitespace-nowrap">{prompt.name}</div>
+                                {prompt.description && <div className="text-[9.5px] text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap">{prompt.description}</div>}
+                              </div>
+                              <HugeiconsIcon icon={ArrowRight01Icon} size={9} className="shrink-0 text-muted-foreground" />
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+
+                      {/* Prompt args form */}
+                      {mcpPopoverTab === 'prompts' && mcpPromptArgs && (
+                        <div className="px-3.5 py-2 flex flex-col gap-2">
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => setMcpPromptArgs(null)} className="text-muted-foreground hover:text-foreground"><HugeiconsIcon icon={ArrowRight01Icon} size={10} style={{ transform: 'rotate(180deg)' }} /></button>
+                            <span className="text-[11px] font-semibold">{mcpPromptArgs.prompt.name}</span>
+                          </div>
+                          {(mcpPromptArgs.prompt.arguments ?? []).map((arg) => (
+                            <div key={arg.name} className="flex flex-col gap-0.5">
+                              <label className="text-[10px] text-muted-foreground">{arg.name}{arg.required && ' *'}</label>
+                              <Input className="h-6 text-xs" value={mcpPromptArgs.args[arg.name] ?? ''} onChange={(e) => setMcpPromptArgs((prev) => prev ? { ...prev, args: { ...prev.args, [arg.name]: e.target.value } } : prev)} placeholder={arg.description ?? ''} />
+                            </div>
+                          ))}
+                          {(mcpPromptArgs.prompt.arguments ?? []).length === 0 && <div className="text-[10px] text-muted-foreground italic">无需参数</div>}
+                          <Button size="sm" className="h-6 text-xs mt-1" onClick={() => { void applyMcpPrompt(); }}>插入输入框</Button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
               </div>
-              {(resolveModel(providers, activeModelUid) ?? allModels[0])?.type === 'anthropic' && (
+              {!!(resolveModel(providers, activeModelUid) ?? allModels[0])?.thinking?.enabled && (
                 <Button
-                  variant={thinkingEnabled ? 'secondary' : 'outline'}
+                  variant={thinkingEnabled ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setThinkingEnabled((v) => !v)}
-                  title="思考模式"
-                  className={cn('h-6 text-[10px] font-semibold px-2', thinkingEnabled && 'text-primary')}
+                  title={thinkingEnabled ? '思考模式已开启' : '开启思考模式'}
+                  className={cn('h-6 text-[10px] font-semibold px-2 gap-1', thinkingEnabled ? 'bg-primary text-primary-foreground' : 'text-muted-foreground')}
                 >
+                  <HugeiconsIcon icon={Brain01Icon} size={11} />
                   思考
                 </Button>
               )}

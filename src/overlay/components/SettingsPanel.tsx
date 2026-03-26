@@ -455,6 +455,19 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
                   <label className="text-xs text-muted-foreground">Model ID</label>
                   <Input value={editingEntry?.entry.modelId ?? ''} onChange={(e) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, modelId: e.target.value } } : s)} placeholder="e.g. claude-sonnet-4-6" />
                 </div>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs text-muted-foreground">支持思考（Extended Thinking）</label>
+                  <Switch
+                    checked={!!(editingEntry?.entry.thinking?.enabled)}
+                    onCheckedChange={(v) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: v ? { enabled: true, budgetTokens: s.entry.thinking?.budgetTokens ?? 8000 } : undefined } } : s)}
+                  />
+                </div>
+                {editingEntry?.entry.thinking?.enabled && (
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground flex-1">思考 Token 预算</label>
+                    <Input type="number" min={1000} step={1000} className="w-24 h-7 text-xs" value={editingEntry.entry.thinking?.budgetTokens ?? 8000} onChange={(e) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: { enabled: true, budgetTokens: Math.max(1000, parseInt(e.target.value) || 8000) } } } : s)} />
+                  </div>
+                )}
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" size="sm" onClick={() => { setEntryModalOpen(false); onModalOpenChange?.(false); }}>Cancel</Button>

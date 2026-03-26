@@ -10,6 +10,7 @@ import SettingsPanel from './components/SettingsPanel';
 import { loadSessions, saveSession, deleteSession, newSession, loadProviders, saveProviders } from '../lib/storage';
 import type { Session, ProviderConfig } from '../lib/storage';
 import { useChatStore } from './store';
+import type { AskUserMode } from '../lib/ai';
 
 export interface ElementData {
   html: string;
@@ -27,6 +28,7 @@ export interface ChatMessage {
   rawLogs?: { request: string; response: string }[];
   isAskUser?: boolean;
   askUserOptions?: string[];
+  askUserMode?: AskUserMode;
   thinkingText?: string;
   toolCall?: { name: string; input: Record<string, unknown> };
 }
@@ -158,12 +160,12 @@ export default function App() {
     });
   }
 
-  function markLastMessageAsAskUser(options?: string[]) {
+  function markLastMessageAsAskUser(options?: string[], mode?: AskUserMode) {
     setActiveSession((prev) => {
       const msgs = [...prev.messages];
       const last = msgs[msgs.length - 1];
       if (last?.role === 'assistant') {
-        msgs[msgs.length - 1] = { ...last, isAskUser: true, askUserOptions: options };
+        msgs[msgs.length - 1] = { ...last, isAskUser: true, askUserOptions: options, askUserMode: mode };
       }
       return { ...prev, messages: msgs };
     });
@@ -515,6 +517,7 @@ export default function App() {
           providers={providers}
           activeModelUid={activeModelUid}
           onActiveModelUidChange={handleActiveModelUidChange}
+          onRenameSession={(title) => handleRenameSession(activeSession.id, title)}
         />
       </div>
       <Toaster position="bottom-center" richColors />

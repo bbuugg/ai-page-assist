@@ -3,11 +3,11 @@ import type { ResolvedModel } from '../storage';
 import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools/index';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { StreamCallbacks } from './types';
+import { CONTEXT_SWITCHING_TOOLS } from './types';
+import type { AskUserMode } from './types';
 import { SYSTEM_PROMPT } from './prompt';
-import { callMcpTool, type McpTool } from '../mcp';
+import { callMcpTool, readMcpResource, type McpTool } from '../mcp';
 import type { Desensitizer } from '../desensitize';
-
-const CONTEXT_SWITCHING_TOOLS = new Set(['open_url', 'switch_tab', 'go_back', 'go_forward', 'refresh']);
 
 export async function runAnthropicTurn(
   history: MessageParam[],
@@ -177,10 +177,11 @@ export async function runAnthropicTurn(
         }
         if (tb.name === 'ask_user') {
           const question = (tb.input as Record<string, unknown>).question as string;
-          const isYesNo = !!(tb.input as Record<string, unknown>).is_yes_no;
+          const mode = ((tb.input as Record<string, unknown>).mode as string) || 'text';
+          const askMode = (['text', 'yes_no', 'single', 'multiple'].includes(mode) ? mode : 'text') as AskUserMode;
           const options = (tb.input as Record<string, unknown>).options as string[] | undefined;
           const answer = callbacks.onAskUser
-            ? await callbacks.onAskUser(question, isYesNo, options)
+            ? await callbacks.onAskUser(question, askMode, options)
             : '';
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: answer });
           // Push tool result and continue loop so AI can respond with the answer
@@ -188,11 +189,32 @@ export async function runAnthropicTurn(
           continueLoop = true;
           break;
         }
+        if (tb.name === 'rename_session') {
+          const title = (tb.input as Record<string, unknown>).title as string;
+          callbacks.onRenameSession?.(title);
+          toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: `Session renamed to: ${title}` });
+          continue;
+        }
         callbacks.onToolCall(tb.name, tb.input as Record<string, unknown>);
         const mcpTool = mcpTools.find((t) => t.name === tb.name);
-        const result = mcpTool
-          ? await callMcpTool(mcpTool, tb.input as Record<string, unknown>)
-          : await executeTool(tb.name as ToolName, tb.input as Record<string, unknown>, disabledTools);
+        let result: { content: string; isError?: boolean };
+        if (tb.name === 'mcp_list_resources') {
+          const resources = mcpTool?._mcpResources ?? [];
+          result = { content: resources.length === 0 ? 'No resources available.' : resources.map((r) => `${r.uri} — ${r.name}${r.description ? ': ' + r.description : ''}`).join('\n') };
+        } else if (tb.name === 'mcp_read_resource') {
+          const uri = (tb.input as { uri?: string }).uri ?? '';
+          const resource = mcpTool?._mcpResources?.find((r) => r.uri === uri);
+          if (!resource) {
+            result = { content: `Resource not found: ${uri}`, isError: true };
+          } else {
+            try { result = { content: await readMcpResource(resource) }; }
+            catch (e) { result = { content: String(e), isError: true }; }
+          }
+        } else if (mcpTool) {
+          result = await callMcpTool(mcpTool, tb.input as Record<string, unknown>);
+        } else {
+          result = await executeTool(tb.name as ToolName, tb.input as Record<string, unknown>, disabledTools);
+        }
         callbacks.onToolResult(tb.name, result.content, result.isError ?? false);
         toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: result.content, is_error: result.isError });
         if (CONTEXT_SWITCHING_TOOLS.has(tb.name) && !result.isError) {

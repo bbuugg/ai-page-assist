@@ -3,13 +3,13 @@ import OpenAI from 'openai';
 import type { ResolvedModel } from '../storage';
 import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools/index';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
-import type { StreamCallbacks } from './types';
+import type { StreamCallbacks, AskUserMode } from './types';
+import { CONTEXT_SWITCHING_TOOLS } from './types';
 import { SYSTEM_PROMPT } from './prompt';
-import { callMcpTool, type McpTool } from '../mcp';
+import { callMcpTool, readMcpResource, type McpTool } from '../mcp';
 import type { Desensitizer } from '../desensitize';
 
 type OAIMessage = OpenAI.Chat.ChatCompletionMessageParam;
-const CONTEXT_SWITCHING_TOOLS = new Set(['open_url', 'switch_tab', 'go_back', 'go_forward', 'refresh']);
 
 function anthropicToOAI(history: MessageParam[], extraSystemPrompt = ''): OAIMessage[] {
   const result: OAIMessage[] = [{ role: 'system', content: SYSTEM_PROMPT + extraSystemPrompt }];
@@ -177,6 +177,9 @@ export async function runOpenAITurn(
       : await client!.chat.completions.create(requestBody, { signal });
 
     let assistantText = '';
+    let thinkingText = '';
+    let inThinkTag = false;
+    let thinkBuf = ''; // buffer to detect partial <think> / </think> tags at chunk boundaries
     const toolCalls: { id: string; name: string; args: string }[] = [];
     const rawChunks: OpenAI.Chat.ChatCompletionChunk[] = [];
 
@@ -187,8 +190,43 @@ export async function runOpenAITurn(
       if (!delta) continue;
       if (delta.content) {
         const decodedContent = desensitizer ? desensitizer.decode(delta.content) : delta.content;
-        assistantText += decodedContent;
-        callbacks.onToken(decodedContent);
+        thinkBuf += decodedContent;
+        // Process buffer: extract <think>...</think> blocks
+        let out = '';
+        while (thinkBuf.length > 0) {
+          if (inThinkTag) {
+            const closeIdx = thinkBuf.indexOf('</think>');
+            if (closeIdx === -1) {
+              // whole buf is thinking content (but keep last 7 chars in case </think> straddles chunks)
+              const safe = thinkBuf.slice(0, Math.max(0, thinkBuf.length - 7));
+              if (safe) { thinkingText += safe; callbacks.onThinking?.(thinkingText); }
+              thinkBuf = thinkBuf.slice(safe.length);
+              break;
+            } else {
+              thinkingText += thinkBuf.slice(0, closeIdx);
+              callbacks.onThinking?.(thinkingText);
+              inThinkTag = false;
+              thinkBuf = thinkBuf.slice(closeIdx + '</think>'.length);
+            }
+          } else {
+            const openIdx = thinkBuf.indexOf('<think>');
+            if (openIdx === -1) {
+              // keep last 6 chars in case <think> straddles chunks
+              const safe = thinkBuf.slice(0, Math.max(0, thinkBuf.length - 6));
+              if (safe) { out += safe; }
+              thinkBuf = thinkBuf.slice(safe.length);
+              break;
+            } else {
+              out += thinkBuf.slice(0, openIdx);
+              inThinkTag = true;
+              thinkBuf = thinkBuf.slice(openIdx + '<think>'.length);
+            }
+          }
+        }
+        if (out) {
+          assistantText += out;
+          callbacks.onToken(out);
+        }
       }
       if (delta.tool_calls) {
         for (const tc of delta.tool_calls) {
@@ -234,19 +272,41 @@ export async function runOpenAITurn(
           continue;
         }
         if (tb.name === 'ask_user') {
-          const question = (tb.input as { question?: string; is_yes_no?: boolean; options?: string[] }).question ?? 'Please provide more information.';
-          const isYesNo = !!(tb.input as { is_yes_no?: boolean }).is_yes_no;
+          const question = (tb.input as { question?: string; mode?: string; options?: string[] }).question ?? 'Please provide more information.';
+          const rawMode = (tb.input as { mode?: string }).mode || 'text';
+          const askMode = (['text', 'yes_no', 'single', 'multiple'].includes(rawMode) ? rawMode : 'text') as AskUserMode;
           const options = (tb.input as { options?: string[] }).options;
-          const answer = callbacks.onAskUser ? await callbacks.onAskUser(question, isYesNo, options) : '';
+          const answer = callbacks.onAskUser ? await callbacks.onAskUser(question, askMode, options) : '';
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: answer });
           // Do not call onToolCall/onToolResult for ask_user — UI handles it via onAskUser
           continue;
         }
+        if (tb.name === 'rename_session') {
+          const title = (tb.input as { title?: string }).title ?? '';
+          callbacks.onRenameSession?.(title);
+          toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: `Session renamed to: ${title}` });
+          continue;
+        }
         callbacks.onToolCall(tb.name, tb.input as Record<string, unknown>);
         const mcpTool = mcpTools.find((t) => t.name === tb.name);
-        const result = mcpTool
-          ? await callMcpTool(mcpTool, tb.input as Record<string, unknown>)
-          : await executeTool(tb.name as ToolName, tb.input as Record<string, unknown>, disabledTools);
+        let result: { content: string; isError?: boolean };
+        if (tb.name === 'mcp_list_resources') {
+          const resources = mcpTool?._mcpResources ?? [];
+          result = { content: resources.length === 0 ? 'No resources available.' : resources.map((r) => `${r.uri} — ${r.name}${r.description ? ': ' + r.description : ''}`).join('\n') };
+        } else if (tb.name === 'mcp_read_resource') {
+          const uri = (tb.input as { uri?: string }).uri ?? '';
+          const resource = mcpTool?._mcpResources?.find((r) => r.uri === uri);
+          if (!resource) {
+            result = { content: `Resource not found: ${uri}`, isError: true };
+          } else {
+            try { result = { content: await readMcpResource(resource) }; }
+            catch (e) { result = { content: String(e), isError: true }; }
+          }
+        } else if (mcpTool) {
+          result = await callMcpTool(mcpTool, tb.input as Record<string, unknown>);
+        } else {
+          result = await executeTool(tb.name as ToolName, tb.input as Record<string, unknown>, disabledTools);
+        }
         callbacks.onToolResult(tb.name, result.content, result.isError ?? false);
         toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: result.content, is_error: result.isError });
         if (CONTEXT_SWITCHING_TOOLS.has(tb.name) && !result.isError) {
