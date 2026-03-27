@@ -34,6 +34,8 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
   const compressThreshold = useChatStore((s) => s.compressThreshold);
   const [agentDialogTrigger, setAgentDialogTrigger] = useState(0);
   const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({});
+  const [modelPickerDialog, setModelPickerDialog] = useState<{ prov: ProviderConfig; entries: ModelEntry[] } | null>(null);
+  const [modelPickerSelected, setModelPickerSelected] = useState<Set<string>>(new Set());
   const [collapsedProviders, setCollapsedProviders] = useState<Record<string, boolean>>({});
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'provider'; id: string; name: string } | { type: 'model'; providerId: string; entryId: string; name: string } | null>(null);
 
@@ -59,17 +61,13 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
         ? json.data.map((m: { id: string }) => m.id).filter(Boolean)
         : [];
       if (ids.length === 0) { toast.error('未找到模型'); return; }
-      const newEntries: ModelEntry[] = ids.map((id) => ({
-        id: `fetched-${id}`,
-        label: id,
-        modelId: id,
-      }));
-      // Merge: keep existing entries that are not in fetched list, add new ones
       const existingModelIds = new Set(prov.models.map((m) => m.modelId));
-      const toAdd = newEntries.filter((e) => !existingModelIds.has(e.modelId));
-      const merged = [...prov.models, ...toAdd];
-      onProvidersChange(providers.map((p) => p.id === prov.id ? { ...p, models: merged } : p));
-      toast.success(`已添加 ${toAdd.length} 个新模型`);
+      const newEntries: ModelEntry[] = ids
+        .filter((id) => !existingModelIds.has(id))
+        .map((id) => ({ id: `fetched-${id}`, label: id, modelId: id }));
+      if (newEntries.length === 0) { toast.success('没有新模型'); return; }
+      setModelPickerSelected(new Set(newEntries.map((e) => e.modelId)));
+      setModelPickerDialog({ prov, entries: newEntries });
     } catch (e) {
       toast.error(`拉取失败: ${String(e)}`);
     } finally {
@@ -332,6 +330,45 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Model Picker Dialog */}
+      <Dialog open={!!modelPickerDialog} onOpenChange={(o) => { if (!o) setModelPickerDialog(null); }}>
+        <DialogContent aria-describedby={undefined} className="w-[340px] p-0 gap-0 overflow-hidden">
+          <DialogHeader className="px-4 py-3 border-b border-border">
+            <DialogTitle className="text-sm">选择要添加的模型</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col max-h-[360px] overflow-y-auto">
+            {modelPickerDialog?.entries.map((entry) => (
+              <div
+                key={entry.modelId}
+                className="flex items-center gap-2.5 px-4 py-2 cursor-pointer hover:bg-muted transition-colors"
+                onClick={() => setModelPickerSelected((prev) => {
+                  const next = new Set(prev);
+                  next.has(entry.modelId) ? next.delete(entry.modelId) : next.add(entry.modelId);
+                  return next;
+                })}
+              >
+                <div className={cn('w-3.5 h-3.5 rounded shrink-0 border flex items-center justify-center', modelPickerSelected.has(entry.modelId) ? 'bg-primary border-primary' : 'border-muted-foreground/40')}>
+                  {modelPickerSelected.has(entry.modelId) && <HugeiconsIcon icon={Tick01Icon} size={9} color="white" strokeWidth={2.5} />}
+                </div>
+                <span className="text-[11px] font-mono truncate">{entry.modelId}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 px-4 py-3 border-t border-border">
+            <Button variant="outline" size="sm" className="flex-1 text-xs" onClick={() => setModelPickerDialog(null)}>取消</Button>
+            <Button size="sm" className="flex-1 text-xs" onClick={() => {
+              if (!modelPickerDialog) return;
+              const toAdd = modelPickerDialog.entries.filter((e) => modelPickerSelected.has(e.modelId));
+              if (toAdd.length === 0) { setModelPickerDialog(null); return; }
+              onProvidersChange(providers.map((p) => p.id === modelPickerDialog.prov.id ? { ...p, models: [...p.models, ...toAdd] } : p));
+              toast.success(`已添加 ${toAdd.length} 个模型`);
+              setModelPickerDialog(null);
+            }}>添加 {modelPickerSelected.size > 0 ? `(${modelPickerSelected.size})` : ''}</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
         {/* Fixed header */}
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border bg-background shrink-0">

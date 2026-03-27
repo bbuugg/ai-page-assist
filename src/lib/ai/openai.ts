@@ -1,53 +1,12 @@
-import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import type { ResolvedModel } from '../storage';
 import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools/index';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { StreamCallbacks, AskUserMode } from './types';
 import { CONTEXT_SWITCHING_TOOLS } from './types';
-import { SYSTEM_PROMPT } from './prompt';
 import { callMcpTool, readMcpResource, type McpTool } from '../mcp';
 import type { Desensitizer } from '../desensitize';
-
-type OAIMessage = OpenAI.Chat.ChatCompletionMessageParam;
-
-function anthropicToOAI(history: MessageParam[], extraSystemPrompt = ''): OAIMessage[] {
-  const result: OAIMessage[] = [{ role: 'system', content: SYSTEM_PROMPT + extraSystemPrompt }];
-  for (const m of history) {
-    if (m.role === 'user') {
-      if (typeof m.content === 'string') {
-        result.push({ role: 'user', content: m.content });
-      } else if (Array.isArray(m.content)) {
-        for (const block of m.content) {
-          if (block.type === 'tool_result') {
-            result.push({
-              role: 'tool',
-              tool_call_id: block.tool_use_id,
-              content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
-            });
-          }
-        }
-      }
-    } else if (m.role === 'assistant') {
-      if (typeof m.content === 'string') {
-        result.push({ role: 'assistant', content: m.content });
-      } else if (Array.isArray(m.content)) {
-        const textBlock = m.content.find((b) => b.type === 'text') as { type: 'text'; text: string } | undefined;
-        const toolBlocks = m.content.filter((b) => b.type === 'tool_use') as Anthropic.Messages.ToolUseBlock[];
-        result.push({
-          role: 'assistant',
-          content: textBlock?.text ?? null,
-          tool_calls: toolBlocks.length > 0 ? toolBlocks.map((tb) => ({
-            id: tb.id,
-            type: 'function' as const,
-            function: { name: tb.name, arguments: JSON.stringify(tb.input) },
-          })) : undefined,
-        });
-      }
-    }
-  }
-  return result;
-}
+import { anthropicToOAI, type OAIMessage } from './history';
 
 const OAI_TOOLS: OpenAI.Chat.ChatCompletionTool[] = TOOL_DEFINITIONS.map((t) => ({
   type: 'function',
