@@ -269,11 +269,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   // Proxy streaming POST (for Ollama — bypasses chrome-extension origin CORS block)
   if (request.action === 'proxyStream') {
-    const { url, body, streamId } = request;
+    const { url, body, streamId, headers: extraHeaders } = request;
     sendResponse({ ok: true }); // ack immediately
     fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(extraHeaders ?? {}) },
       body: JSON.stringify(body),
       credentials: 'omit',
     }).then(async (resp) => {

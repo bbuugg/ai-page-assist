@@ -90,5 +90,5 @@ export async function runConversationTurn(
   if (model.type === 'anthropic') {
     return runAnthropicTurn(dedupedHistory, model, callbacks, signal, effectiveDisabledTools, mcpTools, extraSystemPrompt, desensitizer);
   }
-  return runOpenAITurn(dedupedHistory, model, callbacks, signal, effectiveDisabledTools, mcpTools, extraSystemPrompt, desensitizer);
+return runOpenAITurn(dedupedHistory, model, callbacks, signal, effectiveDisabledTools, mcpTools, extraSystemPrompt, desensitizer);
 }

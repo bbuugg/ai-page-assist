@@ -36,6 +36,7 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
   const [fetchingModels, setFetchingModels] = useState<Record<string, boolean>>({});
   const [modelPickerDialog, setModelPickerDialog] = useState<{ prov: ProviderConfig; entries: ModelEntry[] } | null>(null);
   const [modelPickerSelected, setModelPickerSelected] = useState<Set<string>>(new Set());
+  const [modelPickerSearch, setModelPickerSearch] = useState('');
   const [collapsedProviders, setCollapsedProviders] = useState<Record<string, boolean>>({});
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'provider'; id: string; name: string } | { type: 'model'; providerId: string; entryId: string; name: string } | null>(null);
 
@@ -64,7 +65,7 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
       const existingModelIds = new Set(prov.models.map((m) => m.modelId));
       const newEntries: ModelEntry[] = ids
         .filter((id) => !existingModelIds.has(id))
-        .map((id) => ({ id: `fetched-${id}`, label: id, modelId: id }));
+        .map((id) => ({ id: `${id}`, label: id, modelId: id }));
       if (newEntries.length === 0) { toast.success('没有新模型'); return; }
       setModelPickerSelected(new Set(newEntries.map((e) => e.modelId)));
       setModelPickerDialog({ prov, entries: newEntries });
@@ -204,6 +205,11 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
 
   function handleEntrySave() {
     if (!editingEntry) return;
+    const prov = providers.find((p) => p.id === editingEntry.providerId);
+    if (prov) {
+      const duplicateModelId = prov.models.some((m) => m.modelId === editingEntry.entry.modelId && m.id !== editingEntry.entry.id);
+      if (duplicateModelId) { toast.error(`模型 ID「${editingEntry.entry.modelId}」已存在`); return; }
+    }
     const next = providers.map((p) => {
       if (p.id !== editingEntry.providerId) return p;
       const exists = p.models.some((m) => m.id === editingEntry.entry.id);
@@ -332,13 +338,34 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
       </AlertDialog>
 
       {/* Model Picker Dialog */}
-      <Dialog open={!!modelPickerDialog} onOpenChange={(o) => { if (!o) setModelPickerDialog(null); }}>
+      <Dialog open={!!modelPickerDialog} onOpenChange={(o) => { if (!o) { setModelPickerDialog(null); setModelPickerSearch(''); } }}>
         <DialogContent aria-describedby={undefined} className="w-[340px] p-0 gap-0 overflow-hidden">
           <DialogHeader className="px-4 py-3 border-b border-border">
             <DialogTitle className="text-sm">选择要添加的模型</DialogTitle>
           </DialogHeader>
+          <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
+            <button
+              className="text-[11px] text-muted-foreground hover:text-foreground shrink-0 whitespace-nowrap"
+              onClick={() => {
+                const filtered = modelPickerDialog?.entries.filter((e) => !modelPickerSearch || e.modelId.toLowerCase().includes(modelPickerSearch.toLowerCase())) ?? [];
+                const allSelected = filtered.every((e) => modelPickerSelected.has(e.modelId));
+                setModelPickerSelected((prev) => {
+                  const next = new Set(prev);
+                  if (allSelected) { filtered.forEach((e) => next.delete(e.modelId)); }
+                  else { filtered.forEach((e) => next.add(e.modelId)); }
+                  return next;
+                });
+              }}
+            >
+              {(() => {
+                const filtered = modelPickerDialog?.entries.filter((e) => !modelPickerSearch || e.modelId.toLowerCase().includes(modelPickerSearch.toLowerCase())) ?? [];
+                return filtered.every((e) => modelPickerSelected.has(e.modelId)) && filtered.length > 0 ? '反选' : '全选';
+              })()}
+            </button>
+            <Input value={modelPickerSearch} onChange={(e) => setModelPickerSearch(e.target.value)} placeholder="搜索模型…" className="h-7 text-xs" />
+          </div>
           <div className="flex flex-col max-h-[360px] overflow-y-auto">
-            {modelPickerDialog?.entries.map((entry) => (
+            {modelPickerDialog?.entries.filter((e) => !modelPickerSearch || e.modelId.toLowerCase().includes(modelPickerSearch.toLowerCase())).map((entry) => (
               <div
                 key={entry.modelId}
                 className="flex items-center gap-2.5 px-4 py-2 cursor-pointer hover:bg-muted transition-colors"

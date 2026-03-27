@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import type { ResolvedModel } from '../storage';
 import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools/index';
-import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
+import type { MessageParam, ContentBlock, ToolUseBlock, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { StreamCallbacks, AskUserMode } from './types';
 import { CONTEXT_SWITCHING_TOOLS } from './types';
 import { callMcpTool, readMcpResource, type McpTool } from '../mcp';
@@ -22,6 +22,7 @@ function streamViaBackground(
   url: string,
   body: object,
   signal?: AbortSignal,
+  headers?: Record<string, string>,
 ): AsyncIterable<OpenAI.Chat.ChatCompletionChunk> {
   const streamId = `${Date.now()}-${Math.random()}`;
   return {
@@ -58,7 +59,7 @@ function streamViaBackground(
       chrome.runtime.onMessage.addListener(listener);
       signal?.addEventListener('abort', () => { done = true; chrome.runtime.onMessage.removeListener(listener); if (resolve) { resolve({ value: undefined as unknown as OpenAI.Chat.ChatCompletionChunk, done: true }); resolve = null; } });
 
-      chrome.runtime.sendMessage({ action: 'proxyStream', url, body, streamId });
+      chrome.runtime.sendMessage({ action: 'proxyStream', url, body, streamId, ...(headers ? { headers } : {}) });
 
       return {
         next(): Promise<IteratorResult<OpenAI.Chat.ChatCompletionChunk>> {
@@ -207,20 +208,20 @@ export async function runOpenAITurn(
     }
 
     // Build Anthropic-format assistant message for history
-    const assistantContent: Anthropic.Messages.ContentBlock[] = [];
-    if (assistantText) assistantContent.push({ type: 'text', text: assistantText } as Anthropic.Messages.ContentBlock);
+    const assistantContent: ContentBlock[] = [];
+    if (assistantText) assistantContent.push({ type: 'text', text: assistantText } as ContentBlock);
     const toolUseBlocks = toolCalls.map((tc) => ({
       type: 'tool_use' as const,
       id: tc.id,
       name: tc.name,
       input: (() => { try { return JSON.parse(tc.args); } catch { return {}; } })(),
-    })) as unknown as Anthropic.Messages.ToolUseBlock[];
+    })) as unknown as ToolUseBlock[];
     for (const tb of toolUseBlocks) assistantContent.push(tb);
     if (assistantContent.length > 0) updatedHistory.push({ role: 'assistant', content: assistantContent });
 
     if (toolUseBlocks.length > 0) {
       continueLoop = true;
-      const toolResults: Anthropic.Messages.ToolResultBlockParam[] = [];
+      const toolResults: ToolResultBlockParam[] = [];
       let contextChanged = false;
       for (const tb of toolUseBlocks) {
         if (contextChanged) {

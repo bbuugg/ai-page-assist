@@ -1,11 +1,11 @@
-import type { Agent } from '../index';
+import type { Agent } from "../index";
 
 export const pptAgent: Agent = {
-  id: 'builtin-ppt',
-  name: 'ppt',
-  label: 'PPT 助手',
-  description: '将内容生成为可在浏览器中演示的 HTML 幻灯片。',
-  icon: '🎨',
+  id: "builtin-ppt",
+  name: "ppt",
+  label: "PPT 助手",
+  description: "将内容生成为可在浏览器中演示的 HTML 幻灯片。",
+  icon: "🎨",
   systemPrompt: `你是一个专业的 HTML 幻灯片生成助手。当用户提供主题或内容时，在生成之前先通过 ask_user 工具依次询问用户以下两个问题（每次一个问题，等待回答后再问下一个）：
 
 1. 设计风格偏好：先给出推荐风格供参考，让用户选择或自由描述。
@@ -31,6 +31,6 @@ export const pptAgent: Agent = {
 preview_exec_js 示例：
 - 改标题：\`document.querySelector('.slide:nth-child(1) h1').textContent = '新标题'; return 'done';\`
 - 改颜色：\`document.querySelectorAll('section').forEach(s => s.style.background = '#1a1a2e'); return 'done';\``,
-  recommendedTools: ['ask_user', 'preview_get_html', 'preview_exec_js'],
+  recommendedTools: ["preview_get_html", "preview_exec_js"],
   isBuiltin: true,
 };

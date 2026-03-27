@@ -11,7 +11,7 @@ import { TOOL_META } from '../../lib/tools';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { PencilEdit01Icon, Delete01Icon, ArrowRight01Icon } from '@hugeicons/core-free-icons';
 
-const ALL_TOOL_NAMES = TOOL_META.map((t) => t.name);
+const ALL_TOOL_NAMES = TOOL_META.map((t) => t.name).filter((n) => n !== 'ask_user');
 
 const EMPTY_FORM = { name: '', label: '', description: '', systemPrompt: '', recommendedTools: [] as string[], editingId: null as string | null };
 
