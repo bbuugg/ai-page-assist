@@ -200,6 +200,18 @@ export async function runOpenAITurn(
       }
     }
 
+    // Flush any remaining buffered content (held back to detect partial <think> tags)
+    if (thinkBuf.length > 0) {
+      if (inThinkTag) {
+        thinkingText += thinkBuf;
+        callbacks.onThinking?.(thinkingText);
+      } else {
+        assistantText += thinkBuf;
+        callbacks.onToken(thinkBuf);
+      }
+      thinkBuf = '';
+    }
+
     if (callbacks.onRawLog) {
       callbacks.onRawLog(
         JSON.stringify({ ...requestBody, messages: oaiMessages }, null, 2),
