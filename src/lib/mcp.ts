@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';
 import type { Tool, CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export interface McpResource {
@@ -54,7 +55,7 @@ function createClient(server: McpServerConfig): { client: Client; transport: Str
       ? { requestInit: { headers: server.headers } }
       : undefined,
   );
-  const client = new Client({ name: 'ai-page-assist', version: '1.0.0' });
+  const client = new Client({ name: 'ai-page-assist', version: '1.0.0' }, { jsonSchemaValidator: new CfWorkerJsonSchemaValidator() });
   return { client, transport };
 }
 
