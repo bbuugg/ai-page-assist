@@ -268,7 +268,8 @@ export async function runOpenAITurn(
           result = await executeTool(tb.name as ToolName, tb.input as Record<string, unknown>, disabledTools);
         }
         callbacks.onToolResult(tb.name, result.content, result.isError ?? false);
-        toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: result.content, is_error: result.isError });
+        const toolContent = result.isError ? `Error: ${result.content}` : result.content;
+        toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: toolContent });
         if (CONTEXT_SWITCHING_TOOLS.has(tb.name) && !result.isError) {
           contextChanged = true;
         }

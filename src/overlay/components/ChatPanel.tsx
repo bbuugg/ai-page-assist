@@ -150,9 +150,16 @@ const ToolMessage = memo(function ToolMessage({ msg }: { msg: ChatMessage }) {
         <HugeiconsIcon icon={ArrowRight01Icon} size={10} style={{ flexShrink: 0, transform: open ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.18s' }} />
         {msg.toolIsError ? '⚠ ' : ''}{msg.text}
       </button>
+      {open && msg.toolCall?.input && (
+        <div className="px-2.5 pt-1.5 pb-1.5 border-t border-border/50">
+          <div className="text-[9.5px] text-muted-foreground/60 uppercase tracking-wider mb-0.5">Input</div>
+          <pre className="m-0 text-[10px] whitespace-pre-wrap break-all max-h-32 overflow-y-auto leading-snug text-muted-foreground">{JSON.stringify(msg.toolCall.input, null, 2)}</pre>
+        </div>
+      )}
       {open && msg.toolResult && (
         <div className={cn('px-2.5 pb-2 border-t', msg.toolIsError ? 'border-destructive/30' : 'border-border')}>
-          <pre className="m-0 text-[10px] whitespace-pre-wrap break-all max-h-48 overflow-y-auto leading-snug" style={{ color: 'inherit' }}>{desensitize(msg.toolResult)}</pre>
+          <div className="text-[9.5px] text-muted-foreground/60 uppercase tracking-wider mb-0.5 pt-1.5">Output</div>
+          <pre className="m-0 text-[10px] whitespace-pre-wrap break-all max-h-48 overflow-y-auto leading-snug" style={{ color: 'inherit' }}>{(() => { const t = desensitize(msg.toolResult); try { return JSON.stringify(JSON.parse(t), null, 2); } catch { return t; } })()}</pre>
         </div>
       )}
       {open && !msg.toolResult && (
