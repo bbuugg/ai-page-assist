@@ -15,6 +15,15 @@ type LastElementData = { html: string; css: string } | null;
 type UndoSnapshot = { node: Element; html: string; style: string }[] | null;
 type SendResponse = (response?: unknown) => void;
 
+function dispatchPointerEvent(el: HTMLElement, type: string, init: PointerEventInit): void {
+  if (typeof PointerEvent === 'undefined') return;
+  el.dispatchEvent(new PointerEvent(type, init));
+}
+
+function dispatchMouseEvent(el: HTMLElement, type: string, init: MouseEventInit): void {
+  el.dispatchEvent(new MouseEvent(type, init));
+}
+
 export type ToolHandlerContext = {
   getLastElementData: () => LastElementData;
   setUndoSnapshot: (snapshot: UndoSnapshot) => void;
@@ -108,16 +117,37 @@ export async function handleToolMessage(
           return;
         }
         await showAICursor(el);
+        const { x, y } = getElementClientPoint(el);
+        const pointerInit: PointerEventInit = {
+          bubbles: true,
+          cancelable: true,
+          composed: true,
+          clientX: x,
+          clientY: y,
+          pointerId: 1,
+          pointerType: 'mouse',
+          isPrimary: true,
+          button: 0,
+          buttons: 1,
+        };
+        const mouseDownInit: MouseEventInit = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 };
+        const mouseUpInit: MouseEventInit = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 };
         // hover
-        el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
-        el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+        dispatchPointerEvent(el, 'pointerover', pointerInit);
+        dispatchPointerEvent(el, 'pointerenter', { ...pointerInit, bubbles: false });
+        dispatchMouseEvent(el, 'mouseover', mouseDownInit);
+        dispatchMouseEvent(el, 'mouseenter', { ...mouseDownInit, bubbles: false });
+        dispatchPointerEvent(el, 'pointermove', pointerInit);
+        dispatchMouseEvent(el, 'mousemove', mouseDownInit);
         // press
-        el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        dispatchPointerEvent(el, 'pointerdown', pointerInit);
+        dispatchMouseEvent(el, 'mousedown', mouseDownInit);
         // focus
         el.focus();
         // release + click
-        el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-        el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        dispatchPointerEvent(el, 'pointerup', { ...pointerInit, buttons: 0 });
+        dispatchMouseEvent(el, 'mouseup', mouseUpInit);
+        dispatchMouseEvent(el, 'click', mouseUpInit);
         await new Promise((r) => setTimeout(r, 200));
         sendResponse({ result: 'ok' });
         return;
@@ -215,9 +245,14 @@ export async function handleToolMessage(
           chrome.runtime.sendMessage({ action: 'cdpHover', x, y }, res)
         );
         if (cdpResult?.error) {
-          hoverEl.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: y }));
-          hoverEl.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false, clientX: x, clientY: y }));
-          hoverEl.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y }));
+          const pointerInit: PointerEventInit = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 0 };
+          const mouseInit: MouseEventInit = { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 };
+          dispatchPointerEvent(hoverEl, 'pointerover', pointerInit);
+          dispatchPointerEvent(hoverEl, 'pointerenter', { ...pointerInit, bubbles: false });
+          dispatchMouseEvent(hoverEl, 'mouseover', mouseInit);
+          dispatchMouseEvent(hoverEl, 'mouseenter', { ...mouseInit, bubbles: false });
+          dispatchPointerEvent(hoverEl, 'pointermove', pointerInit);
+          dispatchMouseEvent(hoverEl, 'mousemove', mouseInit);
         }
         sendResponse({ result: `Hovered: ${input.selector}` });
         return;

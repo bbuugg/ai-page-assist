@@ -71,7 +71,7 @@ export async function fetchMcpTools(server: McpServerConfig): Promise<McpTool[]>
       allTools.push(...res.tools);
       cursor = res.nextCursor;
     } while (cursor);
-    return allTools.map((t) => ({
+    return allTools.filter((t): t is Tool => !!t?.name).map((t) => ({
       serverId: server.id,
       serverName: server.name,
       serverUrl: server.url,
@@ -143,7 +143,7 @@ export async function fetchMcpResources(server: McpServerConfig): Promise<McpRes
     let cursor: string | undefined;
     do {
       const res = await client.listResources(cursor ? { cursor } : undefined);
-      for (const r of res.resources) {
+      for (const r of res.resources.filter((item) => !!item?.uri)) {
         all.push({ uri: r.uri, name: r.name, description: r.description, mimeType: r.mimeType, serverId: server.id, serverName: server.name, serverUrl: server.url, serverType: server.type, serverHeaders: server.headers });
       }
       cursor = res.nextCursor;
@@ -180,7 +180,7 @@ export async function fetchMcpPrompts(server: McpServerConfig): Promise<McpPromp
     let cursor: string | undefined;
     do {
       const res = await client.listPrompts(cursor ? { cursor } : undefined);
-      for (const p of res.prompts) {
+      for (const p of res.prompts.filter((item) => !!item?.name)) {
         all.push({ name: p.name, description: p.description, arguments: p.arguments, serverId: server.id, serverName: server.name, serverUrl: server.url, serverType: server.type, serverHeaders: server.headers });
       }
       cursor = res.nextCursor;

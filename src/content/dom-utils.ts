@@ -227,35 +227,76 @@ export function ensureElementInViewport(el: Element): Promise<void> {
   });
 }
 
+function clampClientPoint(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.round(Math.min(Math.max(x, 1), Math.max(window.innerWidth - 1, 1))),
+    y: Math.round(Math.min(Math.max(y, 1), Math.max(window.innerHeight - 1, 1))),
+  };
+}
+
+function getHitElement(el: Element, x: number, y: number): Element | null {
+  const root = el.getRootNode();
+  if ('elementFromPoint' in root && typeof root.elementFromPoint === 'function') {
+    return root.elementFromPoint(x, y);
+  }
+  return document.elementFromPoint(x, y);
+}
+
+function isPointOnElement(el: Element, x: number, y: number): boolean {
+  const hit = getHitElement(el, x, y);
+  return !!hit && (hit === el || el.contains(hit));
+}
+
 export function getElementClientPoint(el: Element): { x: number; y: number } {
-  const rect = el.getBoundingClientRect();
-  const x = Math.min(Math.max(rect.left + rect.width / 2, 1), Math.max(window.innerWidth - 1, 1));
-  const y = Math.min(Math.max(rect.top + rect.height / 2, 1), Math.max(window.innerHeight - 1, 1));
-  const topHit = document.elementFromPoint(x, y);
-  if (topHit && (topHit === el || el.contains(topHit) || topHit.contains(el))) {
-    return { x: Math.round(x), y: Math.round(y) };
-  }
+  const rects = Array.from(el.getClientRects())
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+    .map((rect) => ({
+      left: Math.max(rect.left, 0),
+      top: Math.max(rect.top, 0),
+      right: Math.min(rect.right, window.innerWidth),
+      bottom: Math.min(rect.bottom, window.innerHeight),
+    }))
+    .filter((rect) => rect.right > rect.left && rect.bottom > rect.top)
+    .sort((a, b) => ((b.right - b.left) * (b.bottom - b.top)) - ((a.right - a.left) * (a.bottom - a.top)));
 
-  const candidatePoints: Array<{ x: number; y: number }> = [
-    { x: rect.left + 8, y: rect.top + 8 },
-    { x: rect.right - 8, y: rect.top + 8 },
-    { x: rect.left + 8, y: rect.bottom - 8 },
-    { x: rect.right - 8, y: rect.bottom - 8 },
-    { x: rect.left + rect.width / 2, y: rect.top + 8 },
-    { x: rect.left + rect.width / 2, y: rect.bottom - 8 },
-  ].map(({ x: px, y: py }) => ({
-    x: Math.round(Math.min(Math.max(px, 1), Math.max(window.innerWidth - 1, 1))),
-    y: Math.round(Math.min(Math.max(py, 1), Math.max(window.innerHeight - 1, 1))),
-  }));
+  const fallbackRect = el.getBoundingClientRect();
+  const visibleRects = rects.length > 0
+    ? rects
+    : [{
+      left: Math.max(fallbackRect.left, 0),
+      top: Math.max(fallbackRect.top, 0),
+      right: Math.min(fallbackRect.right, window.innerWidth),
+      bottom: Math.min(fallbackRect.bottom, window.innerHeight),
+    }];
 
+  const candidatePoints = visibleRects.flatMap((rect) => {
+    const width = rect.right - rect.left;
+    const height = rect.bottom - rect.top;
+    const insetX = Math.min(8, Math.max(width / 4, 1));
+    const insetY = Math.min(8, Math.max(height / 4, 1));
+    return [
+      { x: rect.left + width / 2, y: rect.top + height / 2 },
+      { x: rect.left + insetX, y: rect.top + insetY },
+      { x: rect.right - insetX, y: rect.top + insetY },
+      { x: rect.left + insetX, y: rect.bottom - insetY },
+      { x: rect.right - insetX, y: rect.bottom - insetY },
+      { x: rect.left + width / 2, y: rect.top + insetY },
+      { x: rect.left + width / 2, y: rect.bottom - insetY },
+    ].map((point) => clampClientPoint(point.x, point.y));
+  });
+
+  const seen = new Set<string>();
   for (const point of candidatePoints) {
-    const hit = document.elementFromPoint(point.x, point.y);
-    if (hit && (hit === el || el.contains(hit) || hit.contains(el))) {
-      return point;
-    }
+    const key = `${point.x},${point.y}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (isPointOnElement(el, point.x, point.y)) return point;
   }
 
-  return { x: Math.round(x), y: Math.round(y) };
+  return clampClientPoint(
+    fallbackRect.left + fallbackRect.width / 2,
+    fallbackRect.top + fallbackRect.height / 2,
+  );
 }
 
 export function getSimplifiedHTML(root: Element, maxLength = 20000): string {

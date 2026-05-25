@@ -222,7 +222,7 @@ export async function runOpenAITurn(
     // Build Anthropic-format assistant message for history
     const assistantContent: ContentBlock[] = [];
     if (assistantText) assistantContent.push({ type: 'text', text: assistantText } as ContentBlock);
-    const toolUseBlocks = toolCalls.map((tc) => ({
+    const toolUseBlocks = toolCalls.filter((tc) => tc?.name).map((tc) => ({
       type: 'tool_use' as const,
       id: tc.id,
       name: tc.name,
