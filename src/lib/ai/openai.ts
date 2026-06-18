@@ -126,7 +126,7 @@ export async function runOpenAITurn(
     const allOAITools = [...enabledOAITools, ...mcpOAITools];
     const requestBody = {
       model: model.modelId,
-      max_tokens: 4096,
+      max_tokens: model.maxTokens && model.maxTokens > 0 ? model.maxTokens : 4096,
       ...(allOAITools.length > 0 ? { tools: allOAITools, tool_choice: 'auto' as const } : {}),
       messages: oaiMessages,
       stream: true as const,
@@ -251,12 +251,6 @@ export async function runOpenAITurn(
           const answer = callbacks.onAskUser ? await callbacks.onAskUser(question, askMode, options) : '';
           toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: answer });
           // Do not call onToolCall/onToolResult for ask_user — UI handles it via onAskUser
-          continue;
-        }
-        if (tb.name === 'rename_session') {
-          const title = (tb.input as { title?: string }).title ?? '';
-          callbacks.onRenameSession?.(title);
-          toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: `Session renamed to: ${title}` });
           continue;
         }
         callbacks.onToolCall(tb.name, tb.input as Record<string, unknown>);

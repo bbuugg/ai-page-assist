@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
-import { type ProviderConfig, type ModelEntry, type ProviderType, PROVIDER_TYPE_DEFAULTS, type McpServerConfig, loadSearchConfig, saveSearchConfig, type SearchConfig, type SearchEngine } from '../../lib/storage';
+import { type ProviderConfig, type ModelEntry, type ProviderType, PROVIDER_TYPE_DEFAULTS, type McpServerConfig, type EffortLevel } from '../../lib/storage';
 import { useChatStore } from '../store';
 import type { McpTransportType } from '../../lib/mcp';
 import AgentsPanel from './AgentsPanel';
@@ -85,20 +85,6 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const importFileRef = useRef<HTMLInputElement>(null);
-  const [searchConfig, setSearchConfig] = useState<SearchConfig>({
-    engine: 'searxng', searxngUrl: '', braveApiKey: '', googleApiKey: '', googleCx: '',
-  });
-
-  useEffect(() => {
-    loadSearchConfig().then(setSearchConfig);
-  }, []);
-
-  async function handleSearchConfigChange(patch: Partial<SearchConfig>) {
-    const next = { ...searchConfig, ...patch };
-    setSearchConfig(next);
-    await saveSearchConfig(next);
-    toast.success('搜索配置已保存');
-  }
 
   // Auto-load tools for enabled servers on mount
   useEffect(() => {
@@ -523,15 +509,30 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
                   <label className="text-xs text-muted-foreground">支持思考（Extended Thinking）</label>
                   <Switch
                     checked={!!(editingEntry?.entry.thinking?.enabled)}
-                    onCheckedChange={(v) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: v ? { enabled: true, budgetTokens: s.entry.thinking?.budgetTokens ?? 8000 } : undefined } } : s)}
+                    onCheckedChange={(v) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: v ? { enabled: true, effort: s.entry.thinking?.effort ?? 'high' } : undefined } } : s)}
                   />
                 </div>
                 {editingEntry?.entry.thinking?.enabled && (
                   <div className="flex items-center gap-2">
-                    <label className="text-xs text-muted-foreground flex-1">思考 Token 预算</label>
-                    <Input type="number" min={1000} step={1000} className="w-24 h-7 text-xs" value={editingEntry.entry.thinking?.budgetTokens ?? 8000} onChange={(e) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: { enabled: true, budgetTokens: Math.max(1000, parseInt(e.target.value) || 8000) } } } : s)} />
+                    <label className="text-xs text-muted-foreground flex-1">思考深度（Effort）</label>
+                    <Select value={editingEntry.entry.thinking?.effort ?? 'high'} onValueChange={(v) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: { enabled: true, effort: v as EffortLevel } } } : s)}>
+                      <SelectTrigger size="sm" className="w-24 h-7 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">low</SelectItem>
+                        <SelectItem value="medium">medium</SelectItem>
+                        <SelectItem value="high">high</SelectItem>
+                        <SelectItem value="xhigh">xhigh</SelectItem>
+                        <SelectItem value="max">max</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 )}
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-muted-foreground flex-1">最大输出 Tokens</label>
+                  <Input type="number" min={1024} step={1024} className="w-24 h-7 text-xs" placeholder="16000" value={editingEntry?.entry.maxTokens ?? ''} onChange={(e) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, maxTokens: e.target.value ? Math.max(1024, parseInt(e.target.value) || 16000) : undefined } } : s)} />
+                </div>
               </div>
               <div className="flex justify-end gap-2 pt-1">
                 <Button variant="outline" size="sm" onClick={() => { setEntryModalOpen(false); onModalOpenChange?.(false); }}>Cancel</Button>
@@ -539,76 +540,6 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
               </div>
             </DialogContent>
           </Dialog>
-
-          <div className="h-px bg-border mx-3.5" />
-
-          {/* ── Search ── */}
-          <div className="flex items-center justify-between px-3.5 pt-3.5 pb-1.5">
-            <span className="text-[10.5px] font-bold text-muted-foreground uppercase tracking-widest">搜索</span>
-          </div>
-          <div className="flex flex-col gap-2 px-3.5 pb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-muted-foreground w-20 shrink-0">搜索引擎</span>
-              <Select value={searchConfig.engine} onValueChange={(v) => handleSearchConfigChange({ engine: v as SearchEngine })}>
-                <SelectTrigger size="sm" className="flex-1 h-6 text-[11px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="searxng">SearXNG</SelectItem>
-                  <SelectItem value="brave">Brave Search</SelectItem>
-                  <SelectItem value="google">Google Custom Search</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {searchConfig.engine === 'searxng' && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-muted-foreground w-20 shrink-0">实例 URL</span>
-                <Input
-                  className="flex-1 h-6 text-[11px]"
-                  placeholder="https://searx.example.com"
-                  value={searchConfig.searxngUrl}
-                  onChange={(e) => setSearchConfig((c) => ({ ...c, searxngUrl: e.target.value }))}
-                  onBlur={() => handleSearchConfigChange({ searxngUrl: searchConfig.searxngUrl })}
-                />
-              </div>
-            )}
-            {searchConfig.engine === 'brave' && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-muted-foreground w-20 shrink-0">API Key</span>
-                <Input
-                  className="flex-1 h-6 text-[11px]"
-                  placeholder="BSA\u2026"
-                  value={searchConfig.braveApiKey}
-                  onChange={(e) => setSearchConfig((c) => ({ ...c, braveApiKey: e.target.value }))}
-                  onBlur={() => handleSearchConfigChange({ braveApiKey: searchConfig.braveApiKey })}
-                />
-              </div>
-            )}
-            {searchConfig.engine === 'google' && (
-              <>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-muted-foreground w-20 shrink-0">API Key</span>
-                  <Input
-                    className="flex-1 h-6 text-[11px]"
-                    placeholder="AIza\u2026"
-                    value={searchConfig.googleApiKey}
-                    onChange={(e) => setSearchConfig((c) => ({ ...c, googleApiKey: e.target.value }))}
-                    onBlur={() => handleSearchConfigChange({ googleApiKey: searchConfig.googleApiKey })}
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] text-muted-foreground w-20 shrink-0">CX ID</span>
-                  <Input
-                    className="flex-1 h-6 text-[11px]"
-                    placeholder="搜索引擎 ID"
-                    value={searchConfig.googleCx}
-                    onChange={(e) => setSearchConfig((c) => ({ ...c, googleCx: e.target.value }))}
-                    onBlur={() => handleSearchConfigChange({ googleCx: searchConfig.googleCx })}
-                  />
-                </div>
-              </>
-            )}
-          </div>
 
           <div className="h-px bg-border mx-3.5" />
 
@@ -644,6 +575,9 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
                     </Button>
                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditMcp(srv)} title="编辑">
                       <HugeiconsIcon icon={PencilEdit01Icon} size={11} />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => { useChatStore.getState().setMcpServers(mcpServers.filter((s) => s.id !== srv.id)); toast.success('MCP 服务器已删除'); }} title="删除">
+                      <HugeiconsIcon icon={Delete01Icon} size={11} />
                     </Button>
                     <Switch checked={srv.enabled} onCheckedChange={(v) => useChatStore.getState().setMcpServers(mcpServers.map((s) => s.id === srv.id ? { ...s, enabled: v } : s))} />
                   </div>

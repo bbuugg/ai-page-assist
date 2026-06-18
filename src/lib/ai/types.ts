@@ -16,6 +16,4 @@ export interface StreamCallbacks {
   onAskUser?: (question: string, mode: AskUserMode, options?: string[]) => Promise<string>;
   /** Called when a thinking block is received (Anthropic extended thinking). */
   onThinking?: (text: string) => void;
-  /** Called when AI uses rename_session tool. */
-  onRenameSession?: (title: string) => void;
 }

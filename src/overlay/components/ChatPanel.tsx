@@ -51,7 +51,6 @@ interface Props {
   aiTabs: { id: number; title: string; url: string }[];
   onCloseAiTab: (tabId: number) => void;
   onCloseAllAiTabs: () => void;
-  onRenameSession?: (title: string) => void;
 }
 
 const ThinkingBlock = memo(function ThinkingBlock({ text }: { text: string }) {
@@ -169,7 +168,7 @@ const ToolMessage = memo(function ToolMessage({ msg }: { msg: ChatMessage }) {
   );
 });
 
-export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLastToolResult, onPatchLastAssistantThinking, onRemoveLastStreamingMessage, onMarkLastMessageAsAskUser, onAppendRawLog, onRecordToolCall, onDeleteMessage, elementData, history, onHistoryChange, providers, activeModelUid, onActiveModelUidChange, aiTabs, onCloseAiTab, onCloseAllAiTabs, sessions, onRenameSession }: Props) {
+export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLastToolResult, onPatchLastAssistantThinking, onRemoveLastStreamingMessage, onMarkLastMessageAsAskUser, onAppendRawLog, onRecordToolCall, onDeleteMessage, elementData, history, onHistoryChange, providers, activeModelUid, onActiveModelUidChange, aiTabs, onCloseAiTab, onCloseAllAiTabs, sessions }: Props) {
   const allModels = getAllResolvedModels(providers);
   const store = useChatStore();
   const sess = store.getSession(sessionId);
@@ -678,7 +677,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
 
     const resolvedModel = resolveModel(providers, activeModelUid) ?? allModels[0];
     const activeModel = resolvedModel && resolvedModel.type === 'anthropic'
-      ? { ...resolvedModel, thinking: { enabled: thinkingEnabled, budgetTokens: resolvedModel.thinking?.budgetTokens ?? 8000 } }
+      ? { ...resolvedModel, thinking: { enabled: thinkingEnabled, effort: resolvedModel.thinking?.effort ?? 'high' } }
       : resolvedModel;
     if (!activeModel) {
       onAddMessage('system', 'No model configured. Add a provider in Settings.');

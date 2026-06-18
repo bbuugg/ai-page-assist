@@ -8,7 +8,7 @@
     "build": "vite build"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.78.0",
+    "@anthropic-ai/sdk": "^0.104.2",
     "@cfworker/json-schema": "^4.1.1",
     "@fontsource-variable/inter": "^5.2.8",
     "@hugeicons/core-free-icons": "^4.0.0",

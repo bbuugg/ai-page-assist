@@ -39,9 +39,9 @@ export async function runAnthropicTurn(
       input_schema: t.inputSchema,
     }));
     const allTools = [...enabledTools, ...mcpToolDefs];
-    const thinkingEnabled = model.thinking?.enabled && model.type === 'anthropic';
-    const budgetTokens = model.thinking?.budgetTokens ?? 8000;
-    const maxTokens = thinkingEnabled ? budgetTokens + 4096 : 4096;
+    const thinkingEnabled = model.thinking?.enabled === true && model.type === 'anthropic';
+    const effort = model.thinking?.effort ?? 'high';
+    const maxTokens = model.maxTokens && model.maxTokens > 0 ? model.maxTokens : 16000;
     const encodedHistory: MessageParam[] = desensitizer
       ? updatedHistory.map((m) => {
           if (typeof m.content === 'string') return { ...m, content: desensitizer.encode(m.content) };
@@ -61,7 +61,7 @@ export async function runAnthropicTurn(
     const requestParams = {
       model: model.modelId || 'claude-sonnet-4-6',
       max_tokens: maxTokens,
-      ...(thinkingEnabled ? { thinking: { type: 'enabled' as const, budget_tokens: budgetTokens } } : {}),
+      ...(thinkingEnabled ? { thinking: { type: 'adaptive' as const, display: 'summarized' as const }, output_config: { effort } } : {}),
       ...(allTools.length > 0 ? { tools: allTools } : {}),
       messages: encodedHistory,
       system: SYSTEM_PROMPT + extraSystemPrompt,
@@ -188,12 +188,6 @@ export async function runAnthropicTurn(
           updatedHistory.push({ role: 'user', content: toolResults });
           continueLoop = true;
           break;
-        }
-        if (tb.name === 'rename_session') {
-          const title = (tb.input as Record<string, unknown>).title as string;
-          callbacks.onRenameSession?.(title);
-          toolResults.push({ type: 'tool_result', tool_use_id: tb.id, content: `Session renamed to: ${title}` });
-          continue;
         }
         callbacks.onToolCall(tb.name, tb.input as Record<string, unknown>);
         const mcpTool = mcpTools.find((t) => t.name === tb.name);

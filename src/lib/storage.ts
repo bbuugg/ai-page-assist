@@ -5,11 +5,14 @@ export type Provider = 'anthropic' | 'openai' | 'ollama';
 
 export type ProviderType = 'anthropic' | 'openai' | 'ollama';
 
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
 export interface ModelEntry {
   id: string;       // unique within provider
   label: string;    // display name, e.g. "Claude Sonnet"
   modelId: string;  // API string, e.g. "claude-sonnet-4-6"
-  thinking?: { enabled: boolean; budgetTokens: number };
+  thinking?: { enabled: boolean; effort?: EffortLevel };
+  maxTokens?: number;
 }
 
 export interface ProviderConfig {
@@ -29,7 +32,8 @@ export interface ResolvedModel {
   apiKey: string;
   baseURL: string;
   modelId: string;
-  thinking?: { enabled: boolean; budgetTokens: number };
+  thinking?: { enabled: boolean; effort?: EffortLevel };
+  maxTokens?: number;
 }
 
 export const PROVIDER_TYPE_DEFAULTS: Record<ProviderType, { baseURL: string; modelId: string; placeholder: string }> = {
@@ -56,6 +60,7 @@ export function resolveModel(providers: ProviderConfig[], uid: string): Resolved
     baseURL: prov.baseURL,
     modelId: entry.modelId,
     thinking: entry.thinking,
+    maxTokens: entry.maxTokens,
   };
 }
 
@@ -70,6 +75,7 @@ export function getAllResolvedModels(providers: ProviderConfig[]): ResolvedModel
       baseURL: prov.baseURL,
       modelId: entry.modelId,
       thinking: entry.thinking,
+      maxTokens: entry.maxTokens,
     }))
   );
 }
@@ -320,33 +326,3 @@ export async function loadPreviewHtml(): Promise<string> {
   });
 }
 
-// ---- Search Config ----
-export type SearchEngine = 'searxng' | 'brave' | 'google';
-
-export interface SearchConfig {
-  engine: SearchEngine;
-  searxngUrl: string;   // e.g. https://searx.example.com
-  braveApiKey: string;
-  googleApiKey: string;
-  googleCx: string;     // Custom Search Engine ID
-}
-
-const SEARCH_CONFIG_DEFAULTS: SearchConfig = {
-  engine: 'searxng',
-  searxngUrl: '',
-  braveApiKey: '',
-  googleApiKey: '',
-  googleCx: '',
-};
-
-export async function loadSearchConfig(): Promise<SearchConfig> {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(['searchConfig'], (result) => {
-      resolve({ ...SEARCH_CONFIG_DEFAULTS, ...(result.searchConfig ?? {}) });
-    });
-  });
-}
-
-export async function saveSearchConfig(config: SearchConfig): Promise<void> {
-  return new Promise((resolve) => chrome.storage.local.set({ searchConfig: config }, resolve));
-}

@@ -1,5 +1,28 @@
 import type { ToolDef } from '../types';
-import { loadSearchConfig } from '../../storage';
+
+interface SearchConfig {
+  engine: 'searxng' | 'brave' | 'google';
+  searxngUrl: string;
+  braveApiKey: string;
+  googleApiKey: string;
+  googleCx: string;
+}
+
+const SEARCH_DEFAULTS: SearchConfig = {
+  engine: 'searxng',
+  searxngUrl: '',
+  braveApiKey: '',
+  googleApiKey: '',
+  googleCx: '',
+};
+
+async function loadSearchConfig(): Promise<SearchConfig> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['searchConfig'], (result) => {
+      resolve({ ...SEARCH_DEFAULTS, ...(result.searchConfig ?? {}) });
+    });
+  });
+}
 
 async function fetchViaBackground(url: string, headers: Record<string, string>): Promise<{ text?: string; error?: string }> {
   return new Promise((resolve, reject) => {
