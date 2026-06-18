@@ -517,7 +517,6 @@ export default function App() {
           providers={providers}
           activeModelUid={activeModelUid}
           onActiveModelUidChange={handleActiveModelUidChange}
-          onRenameSession={(title) => handleRenameSession(activeSession.id, title)}
         />
       </div>
       <Toaster position="bottom-center" richColors />

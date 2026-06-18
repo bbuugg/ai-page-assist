@@ -797,7 +797,6 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
               askUserResolverRef.current = resolve;
             });
           },
-          onRenameSession: (title) => { onRenameSession?.(title); },
         },
         abort.signal,
         extraSystemPrompt,
