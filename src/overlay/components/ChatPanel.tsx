@@ -53,20 +53,37 @@ interface Props {
   onCloseAllAiTabs: () => void;
 }
 
-const ThinkingBlock = memo(function ThinkingBlock({ text }: { text: string }) {
-  const [open, setOpen] = useState(false);
+const ThinkingBlock = memo(function ThinkingBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(streaming);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const atBottomRef = useRef(true);
+  useEffect(() => { setOpen(streaming); }, [streaming]);
+  // Auto-follow the streaming text; stop once the user scrolls up.
+  useEffect(() => {
+    if (open && atBottomRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [text, open]);
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 12;
+  }
   return (
-    <div style={{ fontSize: 11, color: 'var(--muted-foreground)', maxWidth: '100%' }}>
+    <div className="rounded-lg border-l-2 border-violet-400/60 bg-violet-50 dark:bg-violet-950/30 px-3 py-2 my-1" style={{ fontSize: 11, maxWidth: '100%' }}>
       <button
         onClick={() => setOpen((v) => !v)}
-        style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', padding: '2px 0', fontSize: 11 }}
+        className="flex items-center gap-1.5 w-full text-left cursor-pointer bg-transparent border-none p-0 select-none"
+        style={{ color: 'var(--muted-foreground)', fontSize: 11 }}
       >
         <HugeiconsIcon icon={ArrowRight01Icon} size={9} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
-        思考过程
+        <span style={{ fontWeight: 600, letterSpacing: '0.02em' }}>思考过程</span>
+        {!open && <span className="text-muted-foreground/50 ml-1 truncate" style={{ fontSize: 10 }}>{text.slice(0, 60)}{text.length > 60 ? '…' : ''}</span>}
       </button>
       {open && (
-        <div style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: 'var(--muted)', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontStyle: 'italic', lineHeight: 1.5, maxHeight: 200, overflowY: 'auto' }}>
+        <div ref={scrollRef} onScroll={handleScroll} className="mt-2 text-violet-700 dark:text-violet-300/80 leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 260, overflowY: 'auto', fontSize: 11.5 }}>
           {text}
+          {streaming && <span className="inline-block w-[2px] h-[11px] bg-violet-500/70 ml-px align-text-bottom" style={{ animation: 'ai-thinking-cursor 1s step-end infinite' }} />}
         </div>
       )}
     </div>
@@ -180,6 +197,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
   const compressThreshold = useChatStore((s) => s.compressThreshold);
   const [isCompressing, setIsCompressing] = useState(false);
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
+  const [thinkingStreaming, setThinkingStreaming] = useState(false);
   const [modelSelectOpen, setModelSelectOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [copiedMsgId, setCopiedMsgId] = useState<number | null>(null);
@@ -647,6 +665,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
       streamBufRef.current = '';
       streamIdRef.current = null;
       setIsThinking(true);
+      setThinkingStreaming(false);
       resolve(text);
       return;
     }
@@ -662,12 +681,14 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
       // Discard partial assistant response — do NOT add to history
       // so the new user message starts from the last complete state
       streamBufRef.current = '';
+      setThinkingStreaming(false);
       abortRef.current = null;
     }
 
     if (!override) setInput('');
     onAddMessage('user', text);
     setIsThinking(true);
+    setThinkingStreaming(false);
     streamBufRef.current = '';
     streamIdRef.current = null;
     chrome.runtime.sendMessage({ action: 'setActiveSession', sessionId });
@@ -755,6 +776,8 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             } else {
               window.dispatchEvent(new CustomEvent('ai-stream-patch', { detail: { text: decoded } }));
             }
+            // Response text has started arriving — thinking phase is over for this message
+            setThinkingStreaming(false);
             // Throttle-push HTML blocks to preview page if open
             if (previewThrottleRef.current) clearTimeout(previewThrottleRef.current);
             previewThrottleRef.current = setTimeout(() => {
@@ -770,6 +793,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             streamBufRef.current = '';
             streamIdRef.current = null;
             setIsThinking(true);
+            setThinkingStreaming(false);
             onAddMessage('system', `Using tool: ${toolName}…`, 'tool');
             onRecordToolCall(toolName, _input);
           },
@@ -782,6 +806,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
               setIsThinking(false);
               onAddMessage('assistant', '');
             }
+            setThinkingStreaming(true);
             onPatchLastAssistantThinking(thinkingText);
           },
           onDone: () => {},
@@ -791,6 +816,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             streamBufRef.current = '';
             streamIdRef.current = null;
             setIsThinking(false);
+            setThinkingStreaming(false);
             onAddMessage('assistant', desensitizeRef.current.decode(question));
             if (mode !== 'text') onMarkLastMessageAsAskUser(options, mode);
             return new Promise<string>((resolve) => {
@@ -818,10 +844,12 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
     } finally {
       if (genRef.current === myGen) {
         setIsThinking(false);
+        setThinkingStreaming(false);
         abortRef.current = null;
       } else {
         // Stop was pressed mid-tool — ensure thinking indicator is cleared
         setIsThinking(false);
+        setThinkingStreaming(false);
       }
     }
   }
@@ -851,6 +879,14 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
     return 'System';
   }
 
+  // id of the assistant message currently streaming its thinking (if any)
+  let liveAssistantId = -1;
+  if (thinkingStreaming) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') { liveAssistantId = messages[i].id; break; }
+    }
+  }
+
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-hidden" style={{ position: 'relative' }}>
       {/* Messages */}
@@ -861,7 +897,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
             Ask a question or give a task
           </div>
         )}
-        {messages.filter((m) => m.role !== 'assistant' || m.text.trim() !== '').map((m) => {
+        {messages.filter((m) => m.role !== 'assistant' || m.text.trim() !== '' || (m.thinkingText ?? '').trim() !== '').map((m) => {
           const isUser = m.role === 'user';
           const isSystem = m.role === 'system';
           return (
@@ -903,7 +939,8 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                 </div>
               ) : (
                 <div className="relative flex flex-col gap-1.5 max-w-full">
-                  {m.thinkingText && <ThinkingBlock text={m.thinkingText} />}
+                  {m.thinkingText && <ThinkingBlock text={m.thinkingText} streaming={m.id === liveAssistantId} />}
+                  {m.text.trim() !== '' && (
                   <div className="ai-markdown px-3 py-2 rounded-[5px_18px_18px_18px] bg-muted text-[12.5px] leading-relaxed break-words overflow-hidden">
                     <div
                     className="markdown-body"
@@ -918,6 +955,7 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                     }}
                   />
                   </div>
+                  )}
                   {m.isAskUser && sess.askUserResolver !== null && (
                     <div className="flex flex-col gap-1.5 w-full" style={{ animation: 'ai-pop-in 0.22s cubic-bezier(0.34,1.56,0.64,1)' }}>
                       {m.askUserMode === 'multiple' && m.askUserOptions ? (
@@ -1402,7 +1440,10 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   </div>
                 )}
               </div>
-              {!!(resolveModel(providers, activeModelUid) ?? allModels[0])?.thinking?.enabled && (
+              {(() => {
+                const rm = resolveModel(providers, activeModelUid) ?? allModels[0];
+                return !!(rm?.type === 'anthropic' && rm?.thinking?.enabled);
+              })() && (
                 <Button
                   variant={thinkingEnabled ? 'default' : 'outline'}
                   size="sm"

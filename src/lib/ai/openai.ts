@@ -148,6 +148,14 @@ export async function runOpenAITurn(
       rawChunks.push(chunk);
       const delta = chunk.choices[0]?.delta;
       if (!delta) continue;
+
+      // Handle reasoning_content (DeepSeek R1, QwQ, etc. — reasoning in a separate field)
+      const reasoningContent = (delta as Record<string, unknown>).reasoning_content;
+      if (typeof reasoningContent === 'string' && reasoningContent) {
+        thinkingText += reasoningContent;
+        callbacks.onThinking?.(thinkingText);
+      }
+
       if (delta.content) {
         const decodedContent = desensitizer ? desensitizer.decode(delta.content) : delta.content;
         thinkBuf += decodedContent;

@@ -108,6 +108,11 @@
   }
 }
 
+@keyframes ai-thinking-cursor {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
 @keyframes ai-pop-in {
   from {
     opacity: 0;
