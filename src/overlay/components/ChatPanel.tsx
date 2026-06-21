@@ -73,12 +73,12 @@ const ThinkingBlock = memo(function ThinkingBlock({ text, streaming }: { text: s
     <div className="rounded-lg border-l-2 border-violet-400/60 bg-violet-50 dark:bg-violet-950/30 px-3 py-2 my-1" style={{ fontSize: 11, maxWidth: '100%' }}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 w-full text-left cursor-pointer bg-transparent border-none p-0 select-none"
+        className="flex items-center gap-1.5 w-full min-w-0 text-left cursor-pointer bg-transparent border-none p-0 select-none"
         style={{ color: 'var(--muted-foreground)', fontSize: 11 }}
       >
         <HugeiconsIcon icon={ArrowRight01Icon} size={9} style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
-        <span style={{ fontWeight: 600, letterSpacing: '0.02em' }}>思考过程</span>
-        {!open && <span className="text-muted-foreground/50 ml-1 truncate" style={{ fontSize: 10 }}>{text.slice(0, 60)}{text.length > 60 ? '…' : ''}</span>}
+        <span style={{ fontWeight: 600, letterSpacing: '0.02em', flexShrink: 0, whiteSpace: 'nowrap' }}>思考过程</span>
+        {!open && <span className="text-muted-foreground/50 ml-1 truncate min-w-0" style={{ fontSize: 10 }}>{text.slice(0, 60)}{text.length > 60 ? '…' : ''}</span>}
       </button>
       {open && (
         <div ref={scrollRef} onScroll={handleScroll} className="mt-2 text-violet-700 dark:text-violet-300/80 leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: 260, overflowY: 'auto', fontSize: 11.5 }}>

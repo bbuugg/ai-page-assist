@@ -505,29 +505,33 @@ export default function SettingsPanel({ onModelsChange, onModalOpenChange, provi
                   <label className="text-xs text-muted-foreground">Model ID</label>
                   <Input value={editingEntry?.entry.modelId ?? ''} onChange={(e) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, modelId: e.target.value } } : s)} placeholder="e.g. claude-sonnet-4-6" />
                 </div>
-                <div className="flex items-center justify-between gap-2">
-                  <label className="text-xs text-muted-foreground">支持思考（Extended Thinking）</label>
-                  <Switch
-                    checked={!!(editingEntry?.entry.thinking?.enabled)}
-                    onCheckedChange={(v) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: v ? { enabled: true, effort: s.entry.thinking?.effort ?? 'high' } : undefined } } : s)}
-                  />
-                </div>
-                {editingEntry?.entry.thinking?.enabled && (
-                  <div className="flex items-center gap-2">
-                    <label className="text-xs text-muted-foreground flex-1">思考深度（Effort）</label>
-                    <Select value={editingEntry.entry.thinking?.effort ?? 'high'} onValueChange={(v) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: { enabled: true, effort: v as EffortLevel } } } : s)}>
-                      <SelectTrigger size="sm" className="w-24 h-7 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">low</SelectItem>
-                        <SelectItem value="medium">medium</SelectItem>
-                        <SelectItem value="high">high</SelectItem>
-                        <SelectItem value="xhigh">xhigh</SelectItem>
-                        <SelectItem value="max">max</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                {providers.find((p) => p.id === editingEntry?.providerId)?.type === 'anthropic' && (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="text-xs text-muted-foreground">支持思考（Extended Thinking）</label>
+                      <Switch
+                        checked={!!(editingEntry?.entry.thinking?.enabled)}
+                        onCheckedChange={(v) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: v ? { enabled: true, effort: s.entry.thinking?.effort ?? 'high' } : undefined } } : s)}
+                      />
+                    </div>
+                    {editingEntry?.entry.thinking?.enabled && (
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-muted-foreground flex-1">思考深度（Effort）</label>
+                        <Select value={editingEntry.entry.thinking?.effort ?? 'high'} onValueChange={(v) => setEditingEntry((s) => s ? { ...s, entry: { ...s.entry, thinking: { enabled: true, effort: v as EffortLevel } } } : s)}>
+                          <SelectTrigger size="sm" className="w-24 h-7 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="low">low</SelectItem>
+                            <SelectItem value="medium">medium</SelectItem>
+                            <SelectItem value="high">high</SelectItem>
+                            <SelectItem value="xhigh">xhigh</SelectItem>
+                            <SelectItem value="max">max</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+                  </>
                 )}
                 <div className="flex items-center gap-2">
                   <label className="text-xs text-muted-foreground flex-1">最大输出 Tokens</label>
