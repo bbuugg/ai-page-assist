@@ -1,12 +1,12 @@
 import { loadMcpServers, type ResolvedModel } from '../storage';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
-import type { StreamCallbacks, AskUserMode } from './types';
+import type { StreamCallbacks, AskUserMode, McpAppInfo } from './types';
 import { runAnthropicTurn } from './anthropic';
 import { runOpenAITurn } from './openai';
 import type { Desensitizer } from '../desensitize';
 import { fetchMcpTools, fetchMcpResources, readMcpResource, type McpTool, type McpResource } from '../mcp';
 
-export type { StreamCallbacks, MessageParam, AskUserMode };
+export type { StreamCallbacks, MessageParam, AskUserMode, McpAppInfo };
 
 const PAGE_CTX_MARKER = '[Page context]';
 

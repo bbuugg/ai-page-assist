@@ -38,7 +38,7 @@
     "default_path": "overlay.html"
   },
   "web_accessible_resources": [{
-    "resources": ["preview.html", "assets/*"],
+    "resources": ["preview.html", "sandbox.html", "assets/*"],
     "matches": ["<all_urls>"]
   }],
   "content_scripts": [

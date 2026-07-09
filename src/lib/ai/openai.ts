@@ -4,7 +4,7 @@ import { TOOL_DEFINITIONS, executeTool, type ToolName } from '../tools/index';
 import type { MessageParam, ContentBlock, ToolUseBlock, ToolResultBlockParam } from '@anthropic-ai/sdk/resources/messages';
 import type { StreamCallbacks, AskUserMode } from './types';
 import { CONTEXT_SWITCHING_TOOLS } from './types';
-import { callMcpTool, readMcpResource, type McpTool } from '../mcp';
+import { callMcpTool, readMcpResource, readMcpUiResource, type McpTool, type McpServerConfig } from '../mcp';
 import type { Desensitizer } from '../desensitize';
 import { anthropicToOAI, type OAIMessage } from './history';
 
@@ -278,6 +278,33 @@ export async function runOpenAITurn(
           }
         } else if (mcpTool) {
           result = await callMcpTool(mcpTool, tb.input as Record<string, unknown>);
+          // If this MCP tool has a UI resource, fetch the HTML and notify the UI
+          if (mcpTool.uiResourceUri && !result.isError && callbacks.onMcpApp) {
+            try {
+              const serverConfig: McpServerConfig = {
+                id: mcpTool.serverId,
+                name: mcpTool.serverName,
+                url: mcpTool.serverUrl,
+                enabled: true,
+                type: mcpTool.serverType,
+                headers: mcpTool.serverHeaders,
+              };
+              const appHtml = await readMcpUiResource(serverConfig, mcpTool.uiResourceUri);
+              callbacks.onMcpApp({
+                toolName: tb.name,
+                html: appHtml,
+                input: tb.input as Record<string, unknown>,
+                structuredResult: result.rawContent ?? [],
+                serverId: mcpTool.serverId,
+                serverName: mcpTool.serverName,
+                serverUrl: mcpTool.serverUrl,
+                serverType: mcpTool.serverType,
+                serverHeaders: mcpTool.serverHeaders,
+              });
+            } catch (e) {
+              console.error('[OpenAI] Failed to fetch MCP App UI:', e);
+            }
+          }
         } else {
           result = await executeTool(tb.name as ToolName, tb.input as Record<string, unknown>, disabledTools);
         }

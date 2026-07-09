@@ -6,7 +6,7 @@ import type { StreamCallbacks } from './types';
 import { CONTEXT_SWITCHING_TOOLS } from './types';
 import type { AskUserMode } from './types';
 import { SYSTEM_PROMPT } from './prompt';
-import { callMcpTool, readMcpResource, type McpTool } from '../mcp';
+import { callMcpTool, readMcpResource, readMcpUiResource, type McpTool, type McpServerConfig } from '../mcp';
 import type { Desensitizer } from '../desensitize';
 
 export async function runAnthropicTurn(
@@ -206,6 +206,33 @@ export async function runAnthropicTurn(
           }
         } else if (mcpTool) {
           result = await callMcpTool(mcpTool, tb.input as Record<string, unknown>);
+          // If this MCP tool has a UI resource, fetch the HTML and notify the UI
+          if (mcpTool.uiResourceUri && !result.isError && callbacks.onMcpApp) {
+            try {
+              const serverConfig: McpServerConfig = {
+                id: mcpTool.serverId,
+                name: mcpTool.serverName,
+                url: mcpTool.serverUrl,
+                enabled: true,
+                type: mcpTool.serverType,
+                headers: mcpTool.serverHeaders,
+              };
+              const appHtml = await readMcpUiResource(serverConfig, mcpTool.uiResourceUri);
+              callbacks.onMcpApp({
+                toolName: tb.name,
+                html: appHtml,
+                input: tb.input as Record<string, unknown>,
+                structuredResult: result.rawContent ?? [],
+                serverId: mcpTool.serverId,
+                serverName: mcpTool.serverName,
+                serverUrl: mcpTool.serverUrl,
+                serverType: mcpTool.serverType,
+                serverHeaders: mcpTool.serverHeaders,
+              });
+            } catch (e) {
+              console.error('[Anthropic] Failed to fetch MCP App UI:', e);
+            }
+          }
         } else {
           result = await executeTool(tb.name as ToolName, tb.input as Record<string, unknown>, disabledTools);
         }

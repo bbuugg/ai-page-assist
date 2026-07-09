@@ -10,7 +10,7 @@ import SettingsPanel from './components/SettingsPanel';
 import { loadSessions, saveSession, deleteSession, newSession, loadProviders, saveProviders } from '../lib/storage';
 import type { Session, ProviderConfig } from '../lib/storage';
 import { useChatStore } from './store';
-import type { AskUserMode } from '../lib/ai';
+import type { AskUserMode, McpAppInfo } from '../lib/ai';
 
 export interface ElementData {
   html: string;
@@ -31,6 +31,8 @@ export interface ChatMessage {
   askUserMode?: AskUserMode;
   thinkingText?: string;
   toolCall?: { name: string; input: Record<string, unknown> };
+  /** MCP App info — when set, the tool message renders an interactive app iframe. */
+  mcpAppInfo?: McpAppInfo;
 }
 
 function formatDate(ts: number) {
@@ -204,6 +206,14 @@ export default function App() {
           break;
         }
       }
+      return { ...prev, messages };
+    });
+  }
+
+  function addMcpAppMessage(info: McpAppInfo) {
+    const msg: ChatMessage = { id: nextId(), role: 'system', text: '', mcpAppInfo: info };
+    setActiveSession((prev) => {
+      const messages = [...prev.messages, msg];
       return { ...prev, messages };
     });
   }
@@ -504,6 +514,7 @@ export default function App() {
           messages={activeSession.messages}
           onAddMessage={addMessage}
           onPatchLastToolResult={patchLastToolResult}
+          onAddMcpAppMessage={addMcpAppMessage}
           onPatchLastAssistantThinking={patchLastAssistantThinking}
           onRemoveLastStreamingMessage={removeLastStreamingMessage}
           onMarkLastMessageAsAskUser={markLastMessageAsAskUser}

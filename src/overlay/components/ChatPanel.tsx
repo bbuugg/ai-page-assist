@@ -19,7 +19,7 @@ marked.use({ renderer });
 import 'github-markdown-css/github-markdown.css';
 import type { MessageParam } from '@anthropic-ai/sdk/resources/messages';
 import type { ChatMessage } from '../App';
-import { runConversationTurn, type AskUserMode } from '../../lib/ai';
+import { runConversationTurn, type AskUserMode, type McpAppInfo } from '../../lib/ai';
 import { getAllResolvedModels, resolveModel, type ProviderConfig, type McpServerConfig, type Session, savePreviewHtml } from '../../lib/storage';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { fetchMcpTools, fetchMcpResources, fetchMcpPrompts, readMcpResource, getMcpPrompt, type McpTool, type McpResource, type McpPrompt } from '../../lib/mcp';
@@ -28,6 +28,7 @@ import { ALL_TOOLS } from '../../lib/tools/registry';
 import { executeTool } from '../../lib/tools';
 import { compressHistory } from '../../lib/ai/compress';
 import { desensitize, createDesensitizer, type Desensitizer } from '../../lib/desensitize';
+import { McpAppFrame } from './McpAppFrame';
 import { toast } from 'sonner';
 
 interface Props {
@@ -35,6 +36,7 @@ interface Props {
   messages: ChatMessage[];
   onAddMessage: (role: ChatMessage['role'], text: string, toolMeta?: string) => void;
   onPatchLastToolResult: (result: string, isError?: boolean) => void;
+  onAddMcpAppMessage: (info: McpAppInfo) => void;
   onPatchLastAssistantThinking: (thinkingText: string) => void;
   onRemoveLastStreamingMessage: () => void;
   onMarkLastMessageAsAskUser: (options?: string[], mode?: AskUserMode) => void;
@@ -185,7 +187,7 @@ const ToolMessage = memo(function ToolMessage({ msg }: { msg: ChatMessage }) {
   );
 });
 
-export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLastToolResult, onPatchLastAssistantThinking, onRemoveLastStreamingMessage, onMarkLastMessageAsAskUser, onAppendRawLog, onRecordToolCall, onDeleteMessage, elementData, history, onHistoryChange, providers, activeModelUid, onActiveModelUidChange, aiTabs, onCloseAiTab, onCloseAllAiTabs, sessions }: Props) {
+export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLastToolResult, onAddMcpAppMessage, onPatchLastAssistantThinking, onRemoveLastStreamingMessage, onMarkLastMessageAsAskUser, onAppendRawLog, onRecordToolCall, onDeleteMessage, elementData, history, onHistoryChange, providers, activeModelUid, onActiveModelUidChange, aiTabs, onCloseAiTab, onCloseAllAiTabs, sessions }: Props) {
   const allModels = getAllResolvedModels(providers);
   const store = useChatStore();
   const sess = store.getSession(sessionId);
@@ -800,6 +802,9 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
           onToolResult: (_name, result, isError) => {
             onPatchLastToolResult(result, isError);
           },
+          onMcpApp: (info) => {
+            onAddMcpAppMessage(info);
+          },
           onThinking: (thinkingText) => {
             if (streamIdRef.current === null) {
               streamIdRef.current = Date.now();
@@ -907,7 +912,30 @@ export default function ChatPanel({ sessionId, messages, onAddMessage, onPatchLa
                   {roleLabel(m.role)}
                 </span>
               )}
-              {isSystem ? (
+              {m.mcpAppInfo ? (
+                <div className="relative max-w-[92%] w-full">
+                  <McpAppFrame info={m.mcpAppInfo} />
+                  <div className="absolute -bottom-6 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm rounded-md px-1 py-0.5 shadow-sm">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" title="删除">
+                          <HugeiconsIcon icon={Delete01Icon} size={11} />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>删除消息</AlertDialogTitle>
+                          <AlertDialogDescription>确定要删除这条消息吗？此操作无法撤销。</AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>取消</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => onDeleteMessage(m.id)}>删除</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              ) : isSystem ? (
                 <ToolMessage msg={m} />
               ) : isUser ? (
                 <div className="relative max-w-[85%] px-3.5 py-2 rounded-[18px_5px_18px_18px] bg-primary text-primary-foreground text-[12.5px] leading-relaxed whitespace-pre-wrap break-words">

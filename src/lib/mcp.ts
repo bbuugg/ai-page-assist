@@ -46,6 +46,8 @@ export interface McpTool extends Tool {
   serverType: McpTransportType;
   serverHeaders?: Record<string, string>;
   _mcpResources?: McpResource[]; // virtual tools only: attached resource list
+  /** URI of an MCP App UI resource (from tool._meta.ui.resourceUri), if the tool provides a UI. */
+  uiResourceUri?: string;
 }
 
 function createClient(server: McpServerConfig): { client: Client; transport: StreamableHTTPClientTransport } {
@@ -81,6 +83,11 @@ export async function fetchMcpTools(server: McpServerConfig): Promise<McpTool[]>
       originalName: t.name,
       description: `[MCP: ${server.name}] ${t.description ?? t.name}`,
       inputSchema: t.inputSchema,
+      uiResourceUri: (t as Record<string, unknown>)._meta
+        ? ((t as Record<string, unknown>)._meta as Record<string, unknown>)?.ui
+          ? (((t as Record<string, unknown>)._meta as Record<string, unknown>).ui as Record<string, unknown>)?.resourceUri as string | undefined
+          : undefined
+        : undefined,
     }));
   } finally {
     await client.close();
@@ -90,6 +97,8 @@ export async function fetchMcpTools(server: McpServerConfig): Promise<McpTool[]>
 export interface McpToolResult {
   content: string;
   isError?: boolean;
+  /** Raw structured content from CallToolResult — preserved for MCP App rendering. */
+  rawContent?: CallToolResult['content'];
 }
 
 // Call a tool on a MCP server
@@ -113,12 +122,12 @@ export async function callMcpTool(
       const errText = Array.isArray(result.content)
         ? result.content.map((c) => (c.type === 'text' ? c.text : JSON.stringify(c))).join('')
         : JSON.stringify(result.content);
-      return { content: errText, isError: true };
+      return { content: errText, isError: true, rawContent: result.content };
     }
     const text = Array.isArray(result.content)
       ? result.content.map((c) => (c.type === 'text' ? c.text : JSON.stringify(c))).join('')
       : JSON.stringify(result.content);
-    return { content: text };
+    return { content: text, rawContent: result.content };
   } catch (e) {
     return { content: String(e), isError: true };
   } finally {
@@ -166,6 +175,35 @@ export async function readMcpResource(resource: McpResource): Promise<string> {
       if ('blob' in c) return `[binary: ${c.mimeType ?? 'unknown'}]`;
       return JSON.stringify(c);
     }).join('\n');
+  } finally {
+    await client.close();
+  }
+}
+
+/** MIME type identifying an MCP App UI resource. */
+export const MCP_APP_MIME_TYPE = 'text/html;profile=mcp-app';
+
+/**
+ * Read an MCP App UI resource (HTML) from a server.
+ * Returns the raw HTML string (base64 blob decoded if needed).
+ */
+export async function readMcpUiResource(server: McpServerConfig, uri: string): Promise<string> {
+  const { client, transport } = createClient(server);
+  await client.connect(transport);
+  try {
+    const res = await client.readResource({ uri });
+    if (!res.contents || res.contents.length === 0) {
+      throw new Error(`Empty resource contents for ${uri}`);
+    }
+    const content = res.contents[0] as Record<string, unknown>;
+    if ('blob' in content && typeof content.blob === 'string') {
+      // Base64-encoded HTML
+      return atob(content.blob);
+    }
+    if ('text' in content && typeof content.text === 'string') {
+      return content.text;
+    }
+    throw new Error(`Resource ${uri} has no text or blob content`);
   } finally {
     await client.close();
   }
